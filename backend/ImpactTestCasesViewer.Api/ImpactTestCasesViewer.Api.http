@@ -1,0 +1,6 @@
+@ImpactTestCasesViewer.Api_HostAddress = http://localhost:5265
+
+GET {{ImpactTestCasesViewer.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

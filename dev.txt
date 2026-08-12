@@ -1,0 +1,23 @@
+# 1. Create the new XML-based solution file
+dotnet new sln --name ImpactTestCasesViewer --format slnx
+
+# 2. Create backend project with Controllers
+dotnet new webapi `
+    -n ImpactTestCasesViewer.Api `
+    -o backend/ImpactTestCasesViewer.Api `
+    --use-controllers
+
+# 3. Add backend project to root solution
+dotnet sln ImpactTestCasesViewer.slnx add backend/ImpactTestCasesViewer.Api/ImpactTestCasesViewer.Api.csproj
+
+# 4. Verify solution
+dotnet sln ImpactTestCasesViewer.slnx list
+
+# 5. Build entire solution
+dotnet build ImpactTestCasesViewer.slnx
+
+dotnet sln ImpactTestCasesViewer.slnx add frontend
+
+// Nuget package manager
+dotnet add package Swashbuckle.AspNetCore
+

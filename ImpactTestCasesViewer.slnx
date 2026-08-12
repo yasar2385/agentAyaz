@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/backend/">
+    <Project Path="backend/ImpactTestCasesViewer.Api/ImpactTestCasesViewer.Api.csproj" />
+  </Folder>
+  
+  <Folder Name="/frontend/">
+    <File Path="frontend/impact-testcase-viewer-ui/package.json" />
+    <File Path="frontend/impact-testcase-viewer-ui/vite.config.ts" />
+    <File Path="frontend/impact-testcase-viewer-ui/tsconfig.json" />
+  </Folder>
+</Solution>
