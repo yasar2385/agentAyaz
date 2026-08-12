@@ -1,8 +1,9 @@
 {
   "ExpandedNodes": [
     "",
-    "\\backend\\ImpactTestCasesViewer.Api"
+    "\\backend",
+    "\\backend\\ImpactTestCasesViewer.Api",
+    "\\backend\\ImpactTestCasesViewer.Api\\Options"
   ],
-  "SelectedNode": "\\ImpactTestCasesViewer.slnx",
   "PreviewInSolutionExplorer": false
 }

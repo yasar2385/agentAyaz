@@ -1,16 +1,37 @@
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// ---------------------------------------------------------
+// Services
+// ---------------------------------------------------------
 
 builder.Services.AddControllers();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy =>
+    {
+        policy
+            .WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
+
+// ---------------------------------------------------------
+// Application
+// ---------------------------------------------------------
+
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+
+// ---------------------------------------------------------
+// Development
+// ---------------------------------------------------------
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
@@ -18,9 +39,21 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+
+// ---------------------------------------------------------
+// Middleware
+// ---------------------------------------------------------
+
 app.UseHttpsRedirection();
 
+app.UseCors("Frontend");
+
 app.UseAuthorization();
+
+
+// ---------------------------------------------------------
+// Endpoints
+// ---------------------------------------------------------
 
 app.MapControllers();
 

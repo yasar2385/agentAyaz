@@ -16,7 +16,8 @@ dotnet sln ImpactTestCasesViewer.slnx list
 # 5. Build entire solution
 dotnet build ImpactTestCasesViewer.slnx
 
-dotnet sln ImpactTestCasesViewer.slnx add frontend
+//dotnet sln ImpactTestCasesViewer.slnx add frontend
+// directly add into slnx
 
 // Nuget package manager
 dotnet add package Swashbuckle.AspNetCore
