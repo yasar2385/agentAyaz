@@ -23,6 +23,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection("Google"));
 builder.Services.Configure<TestCaseViewerOptions>(builder.Configuration.GetSection("TestCaseViewer"));
 builder.Services.AddSingleton<IGoogleCredentialProvider, GoogleCredentialProvider>();
+builder.Services.AddSingleton<IGoogleDriveService, GoogleDriveService>();
 
 builder.Services.AddCors(options =>
 {

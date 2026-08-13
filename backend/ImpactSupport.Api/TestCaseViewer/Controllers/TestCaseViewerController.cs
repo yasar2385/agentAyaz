@@ -5,19 +5,21 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace ImpactSupport.Api.TestCaseViewer.Controllers;
 
-
 [ApiController]
 [Route("api/testcaseviewer")]
 public class TestCaseViewerController : ControllerBase
 {
     private readonly IGoogleCredentialProvider _credentialProvider;
     private readonly ILogger<TestCaseViewerController> _logger;
+    private readonly IGoogleDriveService _driveService;
 
     public TestCaseViewerController(
         IGoogleCredentialProvider credentialProvider,
+        IGoogleDriveService driveService,
         ILogger<TestCaseViewerController> logger)
     {
         _credentialProvider = credentialProvider;
+        _driveService = driveService;
         _logger = logger;
     }
 
@@ -58,6 +60,37 @@ public class TestCaseViewerController : ControllerBase
                 authenticated = false,
                 error = ex.Message
             });
+        }
+    }
+
+    [HttpGet("files")]
+    public async Task<IActionResult> GetFiles(
+       [FromQuery] string type,
+       CancellationToken cancellationToken)
+    {
+        if (type is not ("master" or "regression"))
+        {
+            return BadRequest(new
+            {
+                code = "INVALID_REPORT_TYPE",
+                message = "type must be 'master' or 'regression'."
+            });
+        }
+
+        try
+        {
+            var files = await _driveService.GetFilesAsync(type, cancellationToken);
+            return Ok(files);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Folder not configured for report type {ReportType}", type);
+            return StatusCode(500, new { code = "GOOGLE_FILE_NOT_FOUND", message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to list files for report type {ReportType}", type);
+            return StatusCode(500, new { code = "GOOGLE_AUTH_FAILED", message = "Unable to retrieve files from Google Drive." });
         }
     }
 }
