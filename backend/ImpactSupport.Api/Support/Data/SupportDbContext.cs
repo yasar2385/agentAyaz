@@ -1,6 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 
-namespace ImpactSupport.Api.Data;
+namespace ImpactSupport.Api.Support.Data;
 
 public sealed class SupportDbContext : DbContext
 {

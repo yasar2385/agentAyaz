@@ -1,4 +1,4 @@
-﻿namespace ImpactSupport.Api.Data
+﻿namespace ImpactSupport.Api.Support.Data
 {
     public class SupportSession
     {

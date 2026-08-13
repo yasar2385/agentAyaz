@@ -1,4 +1,4 @@
-﻿namespace ImpactSupport.Api.DTOs
+﻿namespace ImpactSupport.Api.Support.DTOs
 {
     public sealed class CreateSupportRequestDto
     {

@@ -1,9 +1,9 @@
-﻿using ImpactSupport.Api.Data;
-using ImpactSupport.Api.DTOs;
+﻿using ImpactSupport.Api.Support.Data;
+using ImpactSupport.Api.Support.DTOs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
-namespace ImpactSupport.Api.Controllers;
+namespace ImpactSupport.Api.Support.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
