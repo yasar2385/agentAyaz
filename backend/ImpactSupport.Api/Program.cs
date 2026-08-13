@@ -6,7 +6,8 @@ using ImpactSupport.Api.TestCaseViewer.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Threading.Tasks;
-
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Cors;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +20,10 @@ builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection("Google"));
+builder.Services.Configure<TestCaseViewerOptions>(builder.Configuration.GetSection("TestCaseViewer"));
+builder.Services.AddSingleton<IGoogleCredentialProvider, GoogleCredentialProvider>();
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("ImpactUiCors", policy =>
@@ -26,7 +31,8 @@ builder.Services.AddCors(options =>
         policy
             .WithOrigins(
                 "http://localhost:8080",
-                "https://localhost:8080"
+                "https://localhost:8080",
+                "http://localhost:5173"   // TestCaseViewer React dev server
              )
             .AllowAnyHeader()
             .AllowAnyMethod()
@@ -39,17 +45,11 @@ builder.Services.AddDbContext<SupportDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("SupportDb"));
 });
 
-
-builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection("Google"));
-builder.Services.AddSingleton<IGoogleCredentialProvider, GoogleCredentialProvider>();
-
-
 // ---------------------------------------------------------
 // Application
 // ---------------------------------------------------------
 
 var app = builder.Build();
-
 
 // ---------------------------------------------------------
 // Development
@@ -62,7 +62,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-
 // ---------------------------------------------------------
 // Middleware
 // ---------------------------------------------------------
@@ -73,7 +72,6 @@ app.UseCors("ImpactUiCors");
 app.MapHealthChecks("/health");
 
 app.UseAuthorization();
-
 
 // ---------------------------------------------------------
 // Endpoints

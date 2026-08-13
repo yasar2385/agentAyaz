@@ -5,20 +5,20 @@ var builder = WebApplication.CreateBuilder(args);
 // ---------------------------------------------------------
 
 builder.Services.AddControllers();
-
+builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("Frontend", policy =>
-    {
-        policy
-            .WithOrigins("http://localhost:5173")
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-    });
-});
+//builder.Services.AddCors(options =>
+//{
+//    options.AddPolicy("Frontend", policy =>
+//    {
+//        policy
+//            .WithOrigins("http://localhost:5173")
+//            .AllowAnyHeader()
+//            .AllowAnyMethod();
+//    });
+//});
 
 
 // ---------------------------------------------------------
@@ -46,15 +46,13 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseCors("Frontend");
-
 app.UseAuthorization();
 
 
 // ---------------------------------------------------------
 // Endpoints
 // ---------------------------------------------------------
-
+app.MapHealthChecks("/health");
 app.MapControllers();
 
 app.Run();
