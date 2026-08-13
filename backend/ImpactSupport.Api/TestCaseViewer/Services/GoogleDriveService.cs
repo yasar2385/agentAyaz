@@ -13,10 +13,7 @@ public sealed class GoogleDriveService : IGoogleDriveService
     private readonly DriveService _driveService;
     private readonly GoogleOptions _options;
 
-    public GoogleDriveService(
-        IGoogleCredentialProvider credentialProvider,
-        IOptions<GoogleOptions> options)
-    {
+    public GoogleDriveService(IGoogleCredentialProvider credentialProvider, IOptions<GoogleOptions> options){
         _options = options.Value;
 
         _driveService = new DriveService(new BaseClientService.Initializer
@@ -89,4 +86,7 @@ public sealed class GoogleDriveService : IGoogleDriveService
             ModifiedTime = file.ModifiedTimeDateTimeOffset
         };
     }
+
+
+
 }
