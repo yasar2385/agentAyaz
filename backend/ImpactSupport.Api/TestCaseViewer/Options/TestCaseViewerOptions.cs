@@ -6,5 +6,7 @@
         ["Testcase_2026", "Testcase_2025"];
 
         public int AutoRefreshMinutes { get; set; } = 5;
+
+        public Dictionary<string, string> KnownFileIds { get; set; } = [];
     }
 }
