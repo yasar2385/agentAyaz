@@ -1,0 +1,6 @@
+@ImpactSupport.Api_HostAddress = http://localhost:5089
+
+GET {{ImpactSupport.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
