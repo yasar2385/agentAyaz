@@ -1,0 +1,52 @@
+# 1. Create the new XML-based solution file
+dotnet new sln --name ImpactSupport --format slnx
+
+# 2. Create backend project with Controllers
+dotnet new webapi `
+    -n ImpactSupport.Api `
+    -o backend/ImpactSupport.Api `
+    --use-controllers
+
+# 3. Add backend project to root solution
+dotnet sln ImpactSupport.slnx add backend/ImpactSupport.Api/ImpactSupport.Api.csproj
+
+# 4. Verify solution
+dotnet sln ImpactSupport.slnx list
+
+# 5. Build entire solution
+dotnet build ImpactSupport.slnx
+
+//dotnet sln ImpactSupport.slnx add frontend
+// directly add into slnx
+
+// Nuget package manager
+dotnet add package Swashbuckle.AspNetCore
+
+
+
+dotnet dev-certs https --trust
+
+
+dotnet tool install --global dotnet-ef
+
+dotnet ef --version
+
+dotnet ef migrations remove
+
+dotnet ef migrations add InitialSupportChatSqlite
+dotnet ef database update
+
+
+dotnet add package Microsoft.EntityFrameworkCore.Design
+dotnet add package Microsoft.EntityFrameworkCore.Sqlite
+
+
+give order  to run or excute
+
+dotnet clean
+dotnet build
+
+dotnet ef migrations add InitialSupportChatSqlite
+dotnet ef database update
+
+dotnet run --launch-profile https
