@@ -74,8 +74,13 @@ public sealed class SupportDbContext : DbContext
             entity.Property(x => x.FileId).IsRequired();
             entity.Property(x => x.FileName).IsRequired();
             entity.Property(x => x.ReportType).IsRequired();
+            entity.Property(x => x.SourceUrl).IsRequired();
+            entity.Property(x => x.FolderUrl).IsRequired();
             entity.Property(x => x.ScanStatus).IsRequired();
             entity.Property(x => x.ScanError).IsRequired();
+            entity.Property(x => x.LocalTsvPath).IsRequired();
+            entity.Property(x => x.SyncStatus).IsRequired();
+            entity.Property(x => x.SyncError).IsRequired();
         });
 
         modelBuilder.Entity<QaDashboardSheetCache>(entity =>
@@ -92,6 +97,9 @@ public sealed class SupportDbContext : DbContext
             entity.Property(x => x.SheetLink).IsRequired();
             entity.Property(x => x.Link).IsRequired();
             entity.Property(x => x.RowsJson).IsRequired();
+            entity.Property(x => x.LocalTsvPath).IsRequired();
+            entity.Property(x => x.SyncStatus).IsRequired();
+            entity.Property(x => x.SyncError).IsRequired();
             entity.Property(x => x.RefreshStatus).IsRequired();
             entity.Property(x => x.RefreshError).IsRequired();
 

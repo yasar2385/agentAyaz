@@ -61,6 +61,28 @@ public sealed class GoogleDriveService : IGoogleDriveService
         return ToGoogleFileInfo(file);
     }
 
+    public async Task<IReadOnlyList<GoogleFileInfo>> GetFilesInFolderAsync(
+        string folderId,
+        string reportType,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(folderId))
+            throw new ArgumentException("folderId must be provided", nameof(folderId));
+
+        if (reportType.Equals("regression", StringComparison.OrdinalIgnoreCase))
+        {
+            return await GetRegressionFilesAsync(folderId, cancellationToken);
+        }
+
+        var files = await _fileLister.ListFilesAsync(
+            folderId,
+            SpreadsheetMimeType,
+            "modifiedTime desc",
+            cancellationToken);
+
+        return files.Select(ToGoogleFileInfo).ToList();
+    }
+
     private async Task<IReadOnlyList<GoogleFileInfo>> GetRegressionFilesAsync(
         string folderId,
         CancellationToken cancellationToken)

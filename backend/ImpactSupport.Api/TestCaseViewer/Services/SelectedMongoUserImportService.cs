@@ -36,7 +36,6 @@ public sealed class SelectedMongoUserImportService : IHostedService
 
         using var scope = _serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
-        await dbContext.Database.MigrateAsync(cancellationToken);
 
         var selectedDocuments = new Dictionary<string, BsonDocument>(StringComparer.OrdinalIgnoreCase);
         foreach (var document in ReadDocuments(bsonPath))

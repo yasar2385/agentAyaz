@@ -22,7 +22,7 @@ public class GoogleDriveServiceTests
                 SpreadsheetMimeType,
                 "modifiedTime desc",
                 It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new List<File>
+            .ReturnsAsync(new List<DriveFile>
             {
                 CreateFile("master-1", "Master spreadsheet", SpreadsheetMimeType, DateTimeOffset.Parse("2026-08-10T10:00:00Z"))
             });

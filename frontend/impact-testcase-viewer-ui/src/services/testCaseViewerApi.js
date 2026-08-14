@@ -36,23 +36,72 @@ export async function getDashboardSummary(fileId) {
   return getJson(`/api/testcaseviewer/files/${encodeURIComponent(fileId)}/dashboard-summary`, 'Failed to fetch dashboard summary');
 }
 
-export async function getDashboardCache(reportType = 'master') {
+export async function getDashboardCache(reportType = 'master', user = null) {
   return getJson(
     `/api/testcaseviewer/dashboard-cache?reportType=${encodeURIComponent(reportType)}`,
     'Failed to fetch dashboard cache',
+    user,
   );
 }
 
-export async function refreshDashboardFile(payload) {
-  return postJson('/api/testcaseviewer/dashboard-cache/refresh-file', payload, 'Failed to refresh dashboard file');
+export async function getOfflineDashboardCache(reportType = 'master', user = null) {
+  return getJson(
+    `/api/testcaseviewer/dashboard-cache/offline?reportType=${encodeURIComponent(reportType)}`,
+    'Failed to fetch offline dashboard cache',
+    user,
+  );
 }
 
-export async function refreshDashboardSheet(payload) {
-  return postJson('/api/testcaseviewer/dashboard-cache/refresh-sheet', payload, 'Failed to refresh dashboard sheet');
+export async function refreshDashboardFile(payload, user = null) {
+  return postJson('/api/testcaseviewer/dashboard-cache/refresh-file', withUser(payload, user), 'Failed to refresh dashboard file', user);
 }
 
-export async function refreshRegressionIndex() {
-  return postJson('/api/testcaseviewer/dashboard-cache/refresh-regression-index', {}, 'Failed to refresh regression index');
+export async function refreshDashboardSheet(payload, user = null) {
+  return postJson('/api/testcaseviewer/dashboard-cache/refresh-sheet', withUser(payload, user), 'Failed to refresh dashboard sheet', user);
+}
+
+export async function refreshRegressionIndex(user = null) {
+  return postJson('/api/testcaseviewer/dashboard-cache/refresh-regression-index', {}, 'Failed to refresh regression index', user);
+}
+
+export async function syncChangedFiles(reportType = 'master', user = null) {
+  return postJson(
+    `/api/testcaseviewer/dashboard-cache/sync-changed-files?reportType=${encodeURIComponent(reportType)}`,
+    {},
+    'Failed to sync changed files',
+    user,
+  );
+}
+
+export async function exportTsv(reportType = 'master', user = null) {
+  return postJson(
+    `/api/testcaseviewer/dashboard-cache/export-tsv?reportType=${encodeURIComponent(reportType)}`,
+    {},
+    'Failed to export TSV',
+    user,
+  );
+}
+
+export async function saveDashboardChanges(payload, user = null) {
+  return postJson('/api/testcaseviewer/dashboard-cache/save-changes', withUser(payload, user), 'Failed to save dashboard changes', user);
+}
+
+export async function loadSourceUrl(url, reportType = 'master', user = null) {
+  return postJson(
+    '/api/testcaseviewer/dashboard-cache/load-url',
+    withUser({ url, reportType }, user),
+    'Failed to load source URL',
+    user,
+  );
+}
+
+export async function downloadToLocal(source, reportType = 'master', user = null) {
+  return postJson(
+    '/api/testcaseviewer/dashboard-cache/download-local',
+    withUser({ source, reportType, downloadScope: 'allSheets' }, user),
+    'Failed to download source to local',
+    user,
+  );
 }
 
 export async function getSheetRows(fileId, sheetName) {
@@ -62,8 +111,8 @@ export async function getSheetRows(fileId, sheetName) {
   );
 }
 
-async function getJson(path, fallbackMessage) {
-  const res = await fetch(`${API_BASE}${path}`);
+async function getJson(path, fallbackMessage, user = null) {
+  const res = await fetch(`${API_BASE}${path}`, { headers: authHeaders(user) });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || fallbackMessage);
@@ -71,10 +120,10 @@ async function getJson(path, fallbackMessage) {
   return res.json();
 }
 
-async function postJson(path, payload, fallbackMessage) {
+async function postJson(path, payload, fallbackMessage, user = null) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(user) },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
@@ -82,6 +131,21 @@ async function postJson(path, payload, fallbackMessage) {
     throw new Error(readErrorMessage(text) || fallbackMessage);
   }
   return res.json();
+}
+
+function withUser(payload, user) {
+  return user ? { ...payload, user } : payload;
+}
+
+function authHeaders(user) {
+  if (!user) return {};
+  return {
+    'X-TestCaseViewer-UserId': user.id ?? '',
+    'X-TestCaseViewer-Username': user.username ?? '',
+    'X-TestCaseViewer-DisplayName': user.displayName ?? '',
+    'X-TestCaseViewer-Role': typeof user.role === 'string' ? user.role : JSON.stringify(user.role ?? ''),
+    'X-TestCaseViewer-Email': user.email ?? '',
+  };
 }
 
 function readErrorMessage(text) {

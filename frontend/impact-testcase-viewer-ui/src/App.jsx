@@ -2,9 +2,15 @@ import { useMemo, useState } from 'react'
 import './App.css'
 import {
   getDashboardCache,
+  getOfflineDashboardCache,
   refreshDashboardFile,
   refreshDashboardSheet,
   refreshRegressionIndex,
+  syncChangedFiles,
+  exportTsv,
+  saveDashboardChanges,
+  loadSourceUrl,
+  downloadToLocal,
   login,
 } from './services/testCaseViewerApi'
 
@@ -19,6 +25,11 @@ const VIEW_TYPES = {
   module: 'module',
   repeated: 'repeated',
   postponed: 'postponed',
+}
+const SOURCE_MODES = {
+  workspaceCloud: 'workspaceCloud',
+  local: 'local',
+  hybrid: 'hybrid',
 }
 
 function LoginPage({ onLogin }) {
@@ -211,6 +222,16 @@ function cacheFileToOption(file) {
     lastScannedAt: file.lastScannedAt,
     scanStatus: file.scanStatus,
     scanError: file.scanError,
+    syncStatus: file.syncStatus,
+    syncError: file.syncError,
+    pendingEditCount: file.pendingEditCount,
+    localTsvPath: file.localTsvPath,
+    lastLocalSyncAt: file.lastLocalSyncAt,
+    lastMetadataSyncedAt: file.lastMetadataSyncedAt,
+    lastDriveCheckedAt: file.lastDriveCheckedAt,
+    driveModifiedTime: file.driveModifiedTime,
+    sourceUrl: file.sourceUrl,
+    folderUrl: file.folderUrl,
     sheets: file.sheets ?? [],
   }
 }
@@ -362,6 +383,8 @@ function DashboardPage({ user, onLogout }) {
   const [rowsLoading, setRowsLoading] = useState(false)
   const [error, setError] = useState('')
   const [dashboardLoaded, setDashboardLoaded] = useState(false)
+  const [sourceMode, setSourceMode] = useState(SOURCE_MODES.workspaceCloud)
+  const [sourceUrl, setSourceUrl] = useState('')
 
   async function loadDashboard(nextReportType = reportType) {
     setLoading(true)
@@ -370,8 +393,12 @@ function DashboardPage({ user, onLogout }) {
 
     try {
       const [masterCache, regressionCache] = await Promise.all([
-        getDashboardCache(REPORT_TYPES.master),
-        getDashboardCache(REPORT_TYPES.regression),
+        sourceMode !== SOURCE_MODES.workspaceCloud
+          ? getOfflineDashboardCache(REPORT_TYPES.master, user)
+          : getDashboardCache(REPORT_TYPES.master, user),
+        sourceMode !== SOURCE_MODES.workspaceCloud
+          ? getOfflineDashboardCache(REPORT_TYPES.regression, user)
+          : getDashboardCache(REPORT_TYPES.regression, user),
       ])
 
       setCacheByReport({ master: masterCache, regression: regressionCache })
@@ -464,8 +491,8 @@ function DashboardPage({ user, onLogout }) {
     setError('')
     try {
       const response = reportType === REPORT_TYPES.regression
-        ? await refreshRegressionIndex()
-        : await refreshDashboardFile({ reportType: REPORT_TYPES.master, fileName: DEFAULT_FILE_NAME })
+        ? await refreshRegressionIndex(user)
+        : await refreshDashboardFile({ reportType: REPORT_TYPES.master, fileName: DEFAULT_FILE_NAME }, user)
       applyCacheResponse(response)
     } catch (err) {
       setError(err.message || 'Unable to refresh index.')
@@ -484,7 +511,7 @@ function DashboardPage({ user, onLogout }) {
         fileId: selectedFileId,
         fileName: selectedFile?.name ?? '',
         sheetName: selectedSheet,
-      })
+      }, user)
       applyCacheResponse(response, reportType, selectedFileId)
       setActiveView(VIEW_TYPES.sheet)
     } catch (err) {
@@ -503,10 +530,56 @@ function DashboardPage({ user, onLogout }) {
         reportType: REPORT_TYPES.regression,
         fileId: selectedFileId,
         fileName: selectedFile?.name ?? '',
-      })
+      }, user)
       applyCacheResponse(response, REPORT_TYPES.regression, selectedFileId)
     } catch (err) {
       setError(err.message || 'Unable to analyze regression file.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function syncCurrentChangedFiles() {
+    setLoading(true)
+    setError('')
+    try {
+      const response = await syncChangedFiles(reportType, user)
+      applyCacheResponse(response)
+    } catch (err) {
+      setError(err.message || 'Unable to sync changed files.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function exportCurrentTsv() {
+    setLoading(true)
+    setError('')
+    try {
+      const response = await exportTsv(reportType, user)
+      applyCacheResponse(response)
+    } catch (err) {
+      setError(err.message || 'Unable to export TSV.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function saveCurrentChanges() {
+    if (!selectedFileId) return
+    setLoading(true)
+    setError('')
+    try {
+      const response = await saveDashboardChanges({
+        reportType,
+        fileId: selectedFileId,
+        fileName: selectedFile?.name ?? '',
+        sheetName: selectedSheet,
+        edits: [],
+      }, user)
+      applyCacheResponse(response, reportType, selectedFileId)
+    } catch (err) {
+      setError(err.message || 'Unable to save changes.')
     } finally {
       setLoading(false)
     }
@@ -524,6 +597,57 @@ function DashboardPage({ user, onLogout }) {
 
     if (nextReportType === REPORT_TYPES.regression && regressionFiles.length > 0) {
       await loadFile(regressionFiles[0])
+    }
+  }
+
+  async function changeSourceMode(nextMode) {
+    setSourceMode(nextMode)
+    setError('')
+    clearSelection()
+    setDashboardLoaded(false)
+    setCacheByReport({ master: null, regression: null })
+    setMasterFiles([])
+    setRegressionFiles([])
+    setKnownFile(null)
+  }
+
+  async function loadDirectSource() {
+    if (!sourceUrl.trim()) {
+      setError('Enter a Google Sheet or Drive folder URL.')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    try {
+      const response = await loadSourceUrl(sourceUrl.trim(), reportType, user)
+      applyCacheResponse(response, reportType)
+      setDashboardLoaded(true)
+      setSourceMode(SOURCE_MODES.workspaceCloud)
+    } catch (err) {
+      setError(err.message || 'Unable to load source URL.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function downloadLocalSource() {
+    if (!sourceUrl.trim()) {
+      setError('Enter a Google Sheet or Drive folder ID or URL.')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    try {
+      const response = await downloadToLocal(sourceUrl.trim(), reportType, user)
+      setSourceMode(SOURCE_MODES.local)
+      applyCacheResponse(response, reportType)
+      setDashboardLoaded(true)
+    } catch (err) {
+      setError(err.message || 'Unable to download source to local.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -626,10 +750,38 @@ function DashboardPage({ user, onLogout }) {
         </div>
       </header>
 
+      <section className="mode-tabs">
+          <button
+            type="button"
+            className={sourceMode === SOURCE_MODES.workspaceCloud ? 'active' : ''}
+            onClick={() => changeSourceMode(SOURCE_MODES.workspaceCloud)}
+          >
+          Workspace Cloud
+        </button>
+        <button
+          type="button"
+          className={sourceMode === SOURCE_MODES.local ? 'active' : ''}
+          onClick={() => changeSourceMode(SOURCE_MODES.local)}
+        >
+          Local
+        </button>
+        <button
+          type="button"
+          className={sourceMode === SOURCE_MODES.hybrid ? 'active' : ''}
+          onClick={() => changeSourceMode(SOURCE_MODES.hybrid)}
+        >
+          Hybrid
+        </button>
+      </section>
+
       {!dashboardLoaded && !summary && !loading && !error && (
         <section className="empty-state">
           <h2>Connect the dashboard</h2>
-          <p>Load `Testcase_2026` and all regression sheets from the configured .NET API.</p>
+          <p>
+            {sourceMode === SOURCE_MODES.workspaceCloud && 'Load from Google Drive or Google Sheets.'}
+            {sourceMode === SOURCE_MODES.local && 'View downloaded local TSV versions.'}
+            {sourceMode === SOURCE_MODES.hybrid && 'Download from cloud to local, then work with local filters.'}
+          </p>
           <button type="button" onClick={() => loadDashboard()}>Load dashboard</button>
         </section>
       )}
@@ -657,9 +809,40 @@ function DashboardPage({ user, onLogout }) {
               </button>
             </div>
 
-            <button className="secondary" type="button" onClick={refreshCurrentIndex} disabled={loading}>
-              Refresh index
-            </button>
+            {sourceMode === SOURCE_MODES.workspaceCloud && (
+              <button className="secondary" type="button" onClick={refreshCurrentIndex} disabled={loading}>
+                Refresh index
+              </button>
+            )}
+
+            {sourceMode === SOURCE_MODES.workspaceCloud && (
+              <button className="secondary" type="button" onClick={syncCurrentChangedFiles} disabled={loading}>
+                Sync changed files
+              </button>
+            )}
+
+            {sourceMode !== SOURCE_MODES.local && (
+              <label className="source-url-field">
+                <span>{sourceMode === SOURCE_MODES.hybrid ? 'Sheet or folder ID / URL' : 'Source URL'}</span>
+                <input
+                  value={sourceUrl}
+                  onChange={event => setSourceUrl(event.target.value)}
+                  placeholder={sourceMode === SOURCE_MODES.hybrid ? 'Sheet or folder ID / URL' : 'Google Sheet or Drive folder URL'}
+                />
+              </label>
+            )}
+
+            {sourceMode === SOURCE_MODES.workspaceCloud && (
+              <button className="secondary" type="button" onClick={loadDirectSource} disabled={loading || !sourceUrl.trim()}>
+                Load URL
+              </button>
+            )}
+
+            {sourceMode === SOURCE_MODES.hybrid && (
+              <button className="secondary" type="button" onClick={downloadLocalSource} disabled={loading || !sourceUrl.trim()}>
+                Download to Local
+              </button>
+            )}
 
             <SelectField
               label={reportType === REPORT_TYPES.master ? 'Master source' : 'Regression file'}
@@ -677,8 +860,20 @@ function DashboardPage({ user, onLogout }) {
               placeholder="Select sheet"
             />
 
-            <button className="secondary" type="button" onClick={refreshSelectedSheet} disabled={rowsLoading || !selectedSheet}>
-              Refresh selected sheet
+            {sourceMode === SOURCE_MODES.workspaceCloud && (
+              <button className="secondary" type="button" onClick={refreshSelectedSheet} disabled={rowsLoading || !selectedSheet}>
+                Refresh selected sheet
+              </button>
+            )}
+
+            {sourceMode === SOURCE_MODES.workspaceCloud && (
+              <button className="secondary" type="button" onClick={saveCurrentChanges} disabled={loading || !selectedFileId}>
+                Save changes to Google
+              </button>
+            )}
+
+            <button className="secondary" type="button" onClick={exportCurrentTsv} disabled={loading}>
+              Export TSV
             </button>
 
             {reportType === REPORT_TYPES.regression && (
@@ -692,7 +887,13 @@ function DashboardPage({ user, onLogout }) {
             <article>
               <span>Selected source</span>
               <strong>{selectedFile?.name ?? DEFAULT_FILE_NAME}</strong>
-              <small>{selectedFile?.scanStatus || 'Cache'} {selectedFile?.lastScannedAt ? `updated ${new Date(selectedFile.lastScannedAt).toLocaleString()}` : ''}</small>
+              <small>
+                {selectedFile?.syncStatus || selectedFile?.scanStatus || 'Local'}
+                {selectedFile?.lastLocalSyncAt ? ` TSV ${new Date(selectedFile.lastLocalSyncAt).toLocaleString()}` : ''}
+                {selectedFile?.lastMetadataSyncedAt ? ` metadata ${new Date(selectedFile.lastMetadataSyncedAt).toLocaleString()}` : ''}
+                {selectedFile?.driveModifiedTime ? ` drive ${new Date(selectedFile.driveModifiedTime).toLocaleString()}` : ''}
+                {selectedFile?.pendingEditCount ? ` pending ${selectedFile.pendingEditCount}` : ''}
+              </small>
             </article>
             <article>
               <span>Testcase_2026</span>
@@ -706,7 +907,9 @@ function DashboardPage({ user, onLogout }) {
             </article>
           </section>
 
-          {selectedFile?.scanError && <section className="notice error compact">{selectedFile.scanError}</section>}
+          {(selectedFile?.scanError || selectedFile?.syncError) && (
+            <section className="notice error compact">{selectedFile.scanError || selectedFile.syncError}</section>
+          )}
 
           {summary && (
             <>

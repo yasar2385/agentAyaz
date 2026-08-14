@@ -29,6 +29,9 @@ builder.Services.AddSingleton<IGoogleDriveFileLister, GoogleDriveFileLister>();
 builder.Services.AddSingleton<IGoogleDriveService, GoogleDriveService>();
 builder.Services.AddSingleton<IQaSheetParser, QaSheetParser>();
 builder.Services.AddSingleton<IGoogleSheetsService, GoogleSheetsService>();
+builder.Services.AddSingleton<IGoogleDriveUrlParser, GoogleDriveUrlParser>();
+builder.Services.AddSingleton<IQaTsvRowReader, QaTsvRowReader>();
+builder.Services.AddScoped<ITestCaseViewerAccessService, TestCaseViewerAccessService>();
 builder.Services.AddScoped<IUserAuthService, SqliteUserAuthService>();
 builder.Services.AddScoped<IDashboardCacheService, DashboardCacheService>();
 builder.Services.AddHostedService<SelectedMongoUserImportService>();
@@ -59,6 +62,23 @@ builder.Services.AddDbContext<SupportDbContext>(options =>
 // ---------------------------------------------------------
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("StartupMigrations");
+    try
+    {
+        logger.LogInformation("Applying SQLite migrations for SupportDb.");
+        var dbContext = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
+        await dbContext.Database.MigrateAsync();
+        logger.LogInformation("SQLite migrations for SupportDb completed.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "SQLite migration failed for SupportDb.");
+        throw;
+    }
+}
 
 // ---------------------------------------------------------
 // Development

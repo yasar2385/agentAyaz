@@ -19,8 +19,15 @@ namespace ImpactSupport.Api.Migrations
                     FileName = table.Column<string>(type: "TEXT", nullable: false),
                     ReportType = table.Column<string>(type: "TEXT", nullable: false),
                     LastScannedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    DriveModifiedTime = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    LastLocalSyncAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    LastGoogleUpdateAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
                     ScanStatus = table.Column<string>(type: "TEXT", nullable: false),
-                    ScanError = table.Column<string>(type: "TEXT", nullable: false)
+                    ScanError = table.Column<string>(type: "TEXT", nullable: false),
+                    LocalTsvPath = table.Column<string>(type: "TEXT", nullable: false),
+                    PendingEditCount = table.Column<int>(type: "INTEGER", nullable: false),
+                    SyncStatus = table.Column<string>(type: "TEXT", nullable: false),
+                    SyncError = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -55,6 +62,13 @@ namespace ImpactSupport.Api.Migrations
                     Link = table.Column<string>(type: "TEXT", nullable: false),
                     RowsJson = table.Column<string>(type: "TEXT", nullable: false),
                     LastRefreshedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    DriveModifiedTime = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    LastLocalSyncAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    LastGoogleUpdateAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    LocalTsvPath = table.Column<string>(type: "TEXT", nullable: false),
+                    PendingEditCount = table.Column<int>(type: "INTEGER", nullable: false),
+                    SyncStatus = table.Column<string>(type: "TEXT", nullable: false),
+                    SyncError = table.Column<string>(type: "TEXT", nullable: false),
                     RefreshStatus = table.Column<string>(type: "TEXT", nullable: false),
                     RefreshError = table.Column<string>(type: "TEXT", nullable: false)
                 },

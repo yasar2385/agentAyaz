@@ -16,25 +16,42 @@ public sealed class DashboardCacheService : IDashboardCacheService
     private const string SuccessStatus = "Success";
     private const string FailedStatus = "Failed";
     private const string RunningStatus = "Running";
+    private const string LocalStatus = "Local";
+    private const string SyncedStatus = "Synced";
+    private const string GoogleNewerStatus = "Google newer";
+    private const string PendingEditsStatus = "Pending edits";
 
     private readonly SupportDbContext _dbContext;
     private readonly IGoogleDriveService _driveService;
     private readonly IGoogleSheetsService _sheetsService;
+    private readonly IGoogleDriveUrlParser _urlParser;
+    private readonly ITestCaseViewerAccessService _accessService;
+    private readonly IQaTsvRowReader _tsvRowReader;
     private readonly TestCaseViewerOptions _options;
 
     public DashboardCacheService(
         SupportDbContext dbContext,
         IGoogleDriveService driveService,
         IGoogleSheetsService sheetsService,
+        IGoogleDriveUrlParser urlParser,
+        ITestCaseViewerAccessService accessService,
+        IQaTsvRowReader tsvRowReader,
         IOptions<TestCaseViewerOptions> options)
     {
         _dbContext = dbContext;
         _driveService = driveService;
         _sheetsService = sheetsService;
+        _urlParser = urlParser;
+        _accessService = accessService;
+        _tsvRowReader = tsvRowReader;
         _options = options.Value;
     }
 
-    public async Task<DashboardCacheResponse> GetCacheAsync(string reportType, CancellationToken cancellationToken = default)
+    public async Task<DashboardCacheResponse> GetCacheAsync(
+        string reportType,
+        AuthUser? user = null,
+        bool includeOfflineRows = false,
+        CancellationToken cancellationToken = default)
     {
         var normalizedReportType = NormalizeReportType(reportType);
         var files = await _dbContext.QaDashboardFileCaches
@@ -47,7 +64,11 @@ public sealed class DashboardCacheService : IDashboardCacheService
         return new DashboardCacheResponse
         {
             ReportType = normalizedReportType,
-            Files = files.Select(ToCachedFile).ToList()
+            Files = files
+                .Where(file => _accessService.CanSeeFile(user, file))
+                .Select(file => ToCachedFile(file, user, includeOfflineRows))
+                .Where(file => file.Sheets.Count > 0 || includeOfflineRows || _options.AccessRules.Count == 0)
+                .ToList()
         };
     }
 
@@ -64,6 +85,8 @@ public sealed class DashboardCacheService : IDashboardCacheService
 
         fileCache.ScanStatus = RunningStatus;
         fileCache.ScanError = string.Empty;
+        fileCache.SourceUrl = string.IsNullOrWhiteSpace(request.Url) ? BuildSpreadsheetUrl(fileId) : request.Url.Trim();
+        fileCache.LastDriveCheckedAt = DateTimeOffset.UtcNow;
         await _dbContext.SaveChangesAsync(cancellationToken);
 
         try
@@ -77,13 +100,18 @@ public sealed class DashboardCacheService : IDashboardCacheService
                 var sheets = await _sheetsService.GetSheetsAsync(fileId, cancellationToken);
                 foreach (var sheet in sheets)
                 {
-                    UpsertSheet(fileCache, sheet.Name);
+                    var cachedSheet = UpsertSheet(fileCache, sheet.Name);
+                    cachedSheet.SheetIndex = sheet.Index;
+                    cachedSheet.SheetGid = sheet.SheetId;
+                    cachedSheet.LastMetadataSyncedAt = DateTimeOffset.UtcNow;
                 }
             }
 
             fileCache.ScanStatus = SuccessStatus;
             fileCache.ScanError = string.Empty;
             fileCache.LastScannedAt = DateTimeOffset.UtcNow;
+            fileCache.LastMetadataSyncedAt = DateTimeOffset.UtcNow;
+            await WriteFileMirrorAsync(fileCache, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (Exception ex)
@@ -94,7 +122,7 @@ public sealed class DashboardCacheService : IDashboardCacheService
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return await GetCacheAsync(reportType, cancellationToken);
+        return await GetCacheAsync(reportType, request.User, false, cancellationToken);
     }
 
     public async Task<DashboardCacheResponse> RefreshSheetAsync(
@@ -125,9 +153,13 @@ public sealed class DashboardCacheService : IDashboardCacheService
             sheet.RefreshStatus = SuccessStatus;
             sheet.RefreshError = string.Empty;
             sheet.LastRefreshedAt = DateTimeOffset.UtcNow;
+            sheet.LastMetadataSyncedAt = DateTimeOffset.UtcNow;
+            await WriteSheetMirrorAsync(fileCache, sheet, rowsResponse.Rows, cancellationToken);
+            sheet.RowsJson = string.Empty;
             fileCache.ScanStatus = SuccessStatus;
             fileCache.ScanError = string.Empty;
             fileCache.LastScannedAt = DateTimeOffset.UtcNow;
+            fileCache.LastMetadataSyncedAt = DateTimeOffset.UtcNow;
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (Exception ex)
@@ -141,10 +173,12 @@ public sealed class DashboardCacheService : IDashboardCacheService
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return await GetCacheAsync(reportType, cancellationToken);
+        return await GetCacheAsync(reportType, request.User, false, cancellationToken);
     }
 
-    public async Task<DashboardCacheResponse> RefreshRegressionIndexAsync(CancellationToken cancellationToken = default)
+    public async Task<DashboardCacheResponse> RefreshRegressionIndexAsync(
+        AuthUser? user = null,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -152,11 +186,19 @@ public sealed class DashboardCacheService : IDashboardCacheService
             foreach (var file in files)
             {
                 var cached = await UpsertFileAsync(RegressionReportType, file.Id, file.Name, cancellationToken);
+                cached.DriveModifiedTime = file.ModifiedTime;
+                cached.SourceUrl = BuildSpreadsheetUrl(file.Id);
+                cached.LastDriveCheckedAt = DateTimeOffset.UtcNow;
+                cached.LastMetadataSyncedAt = DateTimeOffset.UtcNow;
                 cached.ScanStatus = SuccessStatus;
                 cached.ScanError = string.Empty;
                 cached.LastScannedAt = DateTimeOffset.UtcNow;
+                cached.SyncStatus = cached.LastLocalSyncAt.HasValue && file.ModifiedTime > cached.LastLocalSyncAt
+                    ? GoogleNewerStatus
+                    : LocalStatus;
             }
 
+            await WriteManifestAsync(cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
         catch (Exception ex)
@@ -168,7 +210,270 @@ public sealed class DashboardCacheService : IDashboardCacheService
             await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
-        return await GetCacheAsync(RegressionReportType, cancellationToken);
+        return await GetCacheAsync(RegressionReportType, user, false, cancellationToken);
+    }
+
+    public async Task<DashboardCacheResponse> SyncChangedFilesAsync(
+        string reportType,
+        AuthUser? user = null,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedReportType = NormalizeReportType(reportType);
+        if (normalizedReportType == RegressionReportType)
+        {
+            return await RefreshRegressionIndexAsync(user, cancellationToken);
+        }
+
+        var fileId = await ResolveFileIdAsync(new RefreshDashboardCacheRequest { ReportType = MasterReportType }, MasterReportType, cancellationToken);
+        var fileCache = await UpsertFileAsync(MasterReportType, fileId, "Testcase_2026", cancellationToken);
+        if (fileCache.LastLocalSyncAt.HasValue && fileCache.ScanStatus == SuccessStatus)
+        {
+            fileCache.SyncStatus = LocalStatus;
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return await GetCacheAsync(MasterReportType, user, false, cancellationToken);
+        }
+
+        return await RefreshFileAsync(new RefreshDashboardCacheRequest
+        {
+            ReportType = MasterReportType,
+            FileId = fileId,
+            FileName = "Testcase_2026",
+            User = user
+        }, cancellationToken);
+    }
+
+    public async Task<DashboardCacheResponse> ExportTsvAsync(
+        string reportType,
+        AuthUser? user = null,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedReportType = NormalizeReportType(reportType);
+        var files = await _dbContext.QaDashboardFileCaches
+            .Include(file => file.Sheets)
+            .Where(file => file.ReportType == normalizedReportType)
+            .ToListAsync(cancellationToken);
+
+        foreach (var file in files)
+        {
+            await WriteFileMirrorAsync(file, cancellationToken);
+        }
+
+        await WriteManifestAsync(cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return await GetCacheAsync(normalizedReportType, user, false, cancellationToken);
+    }
+
+    public async Task<DashboardCacheResponse> SaveChangesAsync(
+        RefreshDashboardCacheRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var reportType = NormalizeReportType(request.ReportType);
+        var fileId = await ResolveFileIdAsync(request, reportType, cancellationToken);
+        var fileName = string.IsNullOrWhiteSpace(request.FileName)
+            ? reportType == MasterReportType ? "Testcase_2026" : fileId
+            : request.FileName.Trim();
+        var fileCache = await UpsertFileAsync(reportType, fileId, fileName, cancellationToken);
+        var allowedEdits = request.Edits
+            .Where(edit => IsEditableField(edit.FieldName))
+            .ToList();
+        var editsBySheet = allowedEdits
+            .GroupBy(edit => string.IsNullOrWhiteSpace(edit.SheetName) ? request.SheetName : edit.SheetName);
+
+        try
+        {
+            foreach (var sheetEdits in editsBySheet)
+            {
+                var sheetName = sheetEdits.Key;
+                var edits = sheetEdits.ToList();
+                await _sheetsService.UpdateFieldsAsync(fileId, sheetName, edits, cancellationToken);
+                var sheet = UpsertSheet(fileCache, sheetName);
+                sheet.PendingEditCount = Math.Max(0, sheet.PendingEditCount - edits.Count);
+                sheet.SyncStatus = SyncedStatus;
+                sheet.SyncError = string.Empty;
+                sheet.LastGoogleUpdateAt = DateTimeOffset.UtcNow;
+            }
+
+            fileCache.PendingEditCount = Math.Max(0, fileCache.PendingEditCount - allowedEdits.Count);
+            fileCache.SyncStatus = fileCache.PendingEditCount == 0 ? SyncedStatus : PendingEditsStatus;
+            fileCache.SyncError = string.Empty;
+            fileCache.LastGoogleUpdateAt = DateTimeOffset.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            var error = ReadGoogleError(ex);
+            foreach (var sheetEdits in editsBySheet)
+            {
+                var sheet = UpsertSheet(fileCache, sheetEdits.Key);
+                sheet.PendingEditCount += sheetEdits.Count();
+                sheet.SyncStatus = PendingEditsStatus;
+                sheet.SyncError = error;
+            }
+
+            fileCache.PendingEditCount += allowedEdits.Count;
+            fileCache.SyncStatus = PendingEditsStatus;
+            fileCache.SyncError = error;
+        }
+
+        await WriteFileMirrorAsync(fileCache, cancellationToken);
+        await WriteManifestAsync(cancellationToken);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return await GetCacheAsync(reportType, request.User, false, cancellationToken);
+    }
+
+    public async Task<DashboardCacheResponse> LoadUrlAsync(
+        LoadDashboardUrlRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var parsed = _urlParser.Parse(request.Url);
+        var reportType = NormalizeReportType(request.ReportType);
+
+        if (parsed.Kind == GoogleDriveUrlKind.Folder)
+        {
+            var files = await _driveService.GetFilesInFolderAsync(parsed.Id, reportType, cancellationToken);
+            foreach (var file in files)
+            {
+                var cached = await UpsertFileAsync(reportType, file.Id, file.Name, cancellationToken);
+                cached.FolderUrl = parsed.NormalizedUrl;
+                cached.SourceUrl = BuildSpreadsheetUrl(file.Id);
+                cached.DriveModifiedTime = file.ModifiedTime;
+                cached.LastDriveCheckedAt = DateTimeOffset.UtcNow;
+                cached.LastMetadataSyncedAt = DateTimeOffset.UtcNow;
+                cached.ScanStatus = SuccessStatus;
+                cached.ScanError = string.Empty;
+                cached.SyncStatus = cached.LastLocalSyncAt.HasValue && file.ModifiedTime > cached.LastLocalSyncAt
+                    ? GoogleNewerStatus
+                    : LocalStatus;
+            }
+
+            await WriteManifestAsync(cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return await GetCacheAsync(reportType, request.User, false, cancellationToken);
+        }
+
+        var info = await _driveService.GetFileAsync(parsed.Id, cancellationToken);
+        await RefreshFileAsync(new RefreshDashboardCacheRequest
+        {
+            ReportType = reportType,
+            FileId = parsed.Id,
+            FileName = info?.Name ?? parsed.Id,
+            Url = parsed.NormalizedUrl,
+            User = request.User
+        }, cancellationToken);
+
+        if (parsed.SheetGid.HasValue)
+        {
+            var cached = await _dbContext.QaDashboardFileCaches
+                .Include(file => file.Sheets)
+                .FirstOrDefaultAsync(file => file.ReportType == reportType && file.FileId == parsed.Id, cancellationToken);
+            var sheet = cached?.Sheets.FirstOrDefault(item => item.SheetGid == parsed.SheetGid.Value);
+            if (cached != null && sheet != null)
+            {
+                await RefreshSheetAsync(new RefreshDashboardCacheRequest
+                {
+                    ReportType = reportType,
+                    FileId = parsed.Id,
+                    FileName = cached.FileName,
+                    SheetName = sheet.SheetName,
+                    Url = parsed.NormalizedUrl,
+                    User = request.User
+                }, cancellationToken);
+            }
+        }
+
+        return await GetCacheAsync(reportType, request.User, false, cancellationToken);
+    }
+
+    public async Task<DashboardCacheResponse> DownloadLocalAsync(
+        DownloadLocalRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var reportType = NormalizeReportType(request.ReportType);
+        var parsed = _urlParser.Parse(request.Source);
+
+        if (parsed.Kind == GoogleDriveUrlKind.Folder)
+        {
+            await DownloadFolderToLocalAsync(parsed.Id, parsed.NormalizedUrl, reportType, request.User, cancellationToken);
+            return await GetCacheAsync(reportType, request.User, true, cancellationToken);
+        }
+
+        try
+        {
+            await DownloadSpreadsheetToLocalAsync(parsed.Id, parsed.NormalizedUrl, reportType, request.User, cancellationToken);
+        }
+        catch when (!Uri.TryCreate(request.Source.Trim(), UriKind.Absolute, out _))
+        {
+            await DownloadFolderToLocalAsync(
+                request.Source.Trim(),
+                $"https://drive.google.com/drive/folders/{request.Source.Trim()}",
+                reportType,
+                request.User,
+                cancellationToken);
+        }
+
+        return await GetCacheAsync(reportType, request.User, true, cancellationToken);
+    }
+
+    private async Task DownloadFolderToLocalAsync(
+        string folderId,
+        string folderUrl,
+        string reportType,
+        AuthUser? user,
+        CancellationToken cancellationToken)
+    {
+        var files = await _driveService.GetFilesInFolderAsync(folderId, reportType, cancellationToken);
+        foreach (var file in files)
+        {
+            await DownloadSpreadsheetToLocalAsync(file.Id, BuildSpreadsheetUrl(file.Id), reportType, user, cancellationToken, file.Name, file.ModifiedTime, folderUrl);
+        }
+    }
+
+    private async Task DownloadSpreadsheetToLocalAsync(
+        string fileId,
+        string sourceUrl,
+        string reportType,
+        AuthUser? user,
+        CancellationToken cancellationToken,
+        string? fileName = null,
+        DateTimeOffset? modifiedTime = null,
+        string folderUrl = "")
+    {
+        var info = fileName == null ? await _driveService.GetFileAsync(fileId, cancellationToken) : null;
+        await RefreshFileAsync(new RefreshDashboardCacheRequest
+        {
+            ReportType = reportType,
+            FileId = fileId,
+            FileName = fileName ?? info?.Name ?? fileId,
+            Url = sourceUrl,
+            User = user
+        }, cancellationToken);
+
+        var cached = await _dbContext.QaDashboardFileCaches
+            .Include(file => file.Sheets)
+            .FirstOrDefaultAsync(file => file.ReportType == reportType && file.FileId == fileId, cancellationToken);
+        if (cached == null)
+        {
+            return;
+        }
+
+        cached.FolderUrl = folderUrl;
+        cached.DriveModifiedTime = modifiedTime ?? info?.ModifiedTime ?? cached.DriveModifiedTime;
+        foreach (var sheet in cached.Sheets.ToList())
+        {
+            if (!_accessService.CanSeeSheet(user, cached, sheet))
+            {
+                continue;
+            }
+
+            await RefreshSheetAsync(new RefreshDashboardCacheRequest
+            {
+                ReportType = reportType,
+                FileId = fileId,
+                FileName = cached.FileName,
+                SheetName = sheet.SheetName,
+                Url = sourceUrl,
+                User = user
+            }, cancellationToken);
+        }
     }
 
     private async Task RefreshMasterIndexAsync(QaDashboardFileCache fileCache, CancellationToken cancellationToken)
@@ -218,6 +523,7 @@ public sealed class DashboardCacheService : IDashboardCacheService
             sheet.RefreshStatus = SuccessStatus;
             sheet.RefreshError = string.Empty;
             sheet.LastRefreshedAt = DateTimeOffset.UtcNow;
+            sheet.LastMetadataSyncedAt = DateTimeOffset.UtcNow;
         }
     }
 
@@ -312,6 +618,206 @@ public sealed class DashboardCacheService : IDashboardCacheService
         sheet.DevRemarks = string.Join("; ", rows.SelectMany(row => row.DevRemarks).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct());
     }
 
+    private async Task WriteFileMirrorAsync(QaDashboardFileCache fileCache, CancellationToken cancellationToken)
+    {
+        var directory = GetReportDirectory(fileCache.ReportType, fileCache.FileName);
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"{SafeFileName(fileCache.FileName)}__sheets.tsv");
+        var lines = new List<string>
+        {
+            TsvLine([
+                "SheetName", "Module", "PurposeOfTesting", "TotalTestCases", "Pass", "Failed", "Fixed", "Rejected",
+                "Postponed", "NotReplicate", "WIP", "NotClear", "FutureDevelopment", "DevStatus", "DevRemarks",
+                "Remarks", "SheetLink", "Link", "SyncStatus", "PendingEditCount", "LastRefreshedAt"
+            ])
+        };
+
+        foreach (var sheet in fileCache.Sheets.OrderBy(sheet => sheet.SheetName))
+        {
+            lines.Add(TsvLine([
+                sheet.SheetName,
+                sheet.Module,
+                sheet.PurposeOfTesting,
+                sheet.TotalTestCases.ToString(),
+                sheet.PassCount.ToString(),
+                sheet.FailedCount.ToString(),
+                sheet.FixedCount.ToString(),
+                sheet.RejectedCount.ToString(),
+                sheet.PostponedCount.ToString(),
+                sheet.NotReplicateCount.ToString(),
+                sheet.WipCount.ToString(),
+                sheet.NotClearCount.ToString(),
+                sheet.FutureDevelopmentCount.ToString(),
+                sheet.DevStatus,
+                sheet.DevRemarks,
+                sheet.Remarks,
+                sheet.SheetLink,
+                sheet.Link,
+                sheet.SyncStatus,
+                sheet.PendingEditCount.ToString(),
+                sheet.LastRefreshedAt?.ToString("O") ?? string.Empty
+            ]));
+        }
+
+        await File.WriteAllLinesAsync(path, lines, cancellationToken);
+        fileCache.LocalTsvPath = path;
+        fileCache.LastLocalSyncAt = DateTimeOffset.UtcNow;
+        if (fileCache.PendingEditCount == 0)
+        {
+            fileCache.SyncStatus = SyncedStatus;
+        }
+        await WriteManifestAsync(cancellationToken);
+    }
+
+    private async Task WriteSheetMirrorAsync(
+        QaDashboardFileCache fileCache,
+        QaDashboardSheetCache sheet,
+        IReadOnlyList<QaRow> rows,
+        CancellationToken cancellationToken)
+    {
+        var directory = GetReportDirectory(fileCache.ReportType, fileCache.FileName);
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, $"{SafeFileName(sheet.SheetName)}__rows.tsv");
+        var lines = new List<string>
+        {
+            TsvLine([
+                "SheetName", "TestCaseNo", "TestCaseId", "Module", "Description", "QAStatus", "DevStatus",
+                "IssueType", "ActualResult", "QARemarks", "DevRemarks", "Rounds"
+            ])
+        };
+
+        foreach (var row in rows)
+        {
+            lines.Add(TsvLine([
+                row.SheetName,
+                row.TestCaseNo,
+                row.TestCaseId,
+                row.Module,
+                row.Description,
+                row.QaStatus,
+                row.DevStatus,
+                row.IssueType,
+                row.ActualResult,
+                string.Join(" | ", row.QaRemarks),
+                string.Join(" | ", row.DevRemarks),
+                string.Join(" | ", row.Rounds.Select(round => $"R{round.RoundNumber}: QA={round.QaStatus}; Dev={round.DevStatus}"))
+            ]));
+        }
+
+        await File.WriteAllLinesAsync(path, lines, cancellationToken);
+        sheet.LocalTsvPath = path;
+        sheet.LastLocalSyncAt = DateTimeOffset.UtcNow;
+        if (sheet.PendingEditCount == 0)
+        {
+            sheet.SyncStatus = SyncedStatus;
+            sheet.SyncError = string.Empty;
+        }
+    }
+
+    private async Task WriteSheetMirrorAsync(
+        QaDashboardFileCache fileCache,
+        QaDashboardSheetCache sheet,
+        CancellationToken cancellationToken)
+    {
+        var rows = string.IsNullOrWhiteSpace(sheet.RowsJson)
+            ? _tsvRowReader.ReadRows(sheet.LocalTsvPath)
+            : JsonSerializer.Deserialize<IReadOnlyList<QaRow>>(sheet.RowsJson) ?? [];
+        await WriteSheetMirrorAsync(fileCache, sheet, rows, cancellationToken);
+    }
+
+    private async Task WriteManifestAsync(CancellationToken cancellationToken)
+    {
+        var directory = GetBaseDirectory();
+        Directory.CreateDirectory(directory);
+        var files = await _dbContext.QaDashboardFileCaches
+            .AsNoTracking()
+            .Include(file => file.Sheets)
+            .OrderBy(file => file.ReportType)
+            .ThenBy(file => file.FileName)
+            .ToListAsync(cancellationToken);
+        var manifest = files.Select(file => new
+        {
+            file.FileId,
+            file.FileName,
+            file.ReportType,
+            file.DriveModifiedTime,
+            file.LocalTsvPath,
+            file.LastLocalSyncAt,
+            file.LastGoogleUpdateAt,
+            file.PendingEditCount,
+            file.SyncStatus,
+            file.SyncError,
+            Sheets = file.Sheets.Select(sheet => new
+            {
+                sheet.SheetName,
+                sheet.LocalTsvPath,
+                sheet.LastLocalSyncAt,
+                sheet.LastGoogleUpdateAt,
+                sheet.PendingEditCount,
+                sheet.SyncStatus,
+                sheet.SyncError
+            })
+        });
+
+        await File.WriteAllTextAsync(
+            Path.Combine(directory, "sync-manifest.json"),
+            JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }),
+            cancellationToken);
+    }
+
+    private static bool IsEditableField(string fieldName)
+    {
+        return fieldName.Equals("QA Status", StringComparison.OrdinalIgnoreCase)
+            || fieldName.Equals("Dev. Status", StringComparison.OrdinalIgnoreCase)
+            || fieldName.Equals("QA Remarks", StringComparison.OrdinalIgnoreCase)
+            || fieldName.Equals("Dev. Remarks", StringComparison.OrdinalIgnoreCase)
+            || fieldName.Contains("remark", StringComparison.OrdinalIgnoreCase)
+            || fieldName.Contains("provision", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string GetReportDirectory(string reportType, string fileName)
+    {
+        return Path.Combine(
+            GetBaseDirectory(),
+            reportType == RegressionReportType ? "Regression" : "Testcase_2026",
+            SafeFileName(fileName));
+    }
+
+    private static string GetBaseDirectory()
+    {
+        var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        return Path.Combine(documents, "ImpactSupport", "TestCaseViewer");
+    }
+
+    private static string SafeFileName(string value)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var safe = new string(value.Select(ch => invalidChars.Contains(ch) ? '_' : ch).ToArray());
+        return string.IsNullOrWhiteSpace(safe) ? "untitled" : safe;
+    }
+
+    private static string BuildSpreadsheetUrl(string fileId)
+    {
+        return string.IsNullOrWhiteSpace(fileId)
+            ? string.Empty
+            : $"https://docs.google.com/spreadsheets/d/{fileId}/edit";
+    }
+
+    private static string TsvLine(IEnumerable<string> values)
+    {
+        return string.Join('\t', values.Select(TsvCell));
+    }
+
+    private static string TsvCell(string value)
+    {
+        return value
+            .Replace("\r\n", " ")
+            .Replace('\r', ' ')
+            .Replace('\n', ' ')
+            .Replace('\t', ' ')
+            .Trim();
+    }
+
     private static int CountByStatus(IEnumerable<QaRow> rows, params string[] terms)
     {
         return rows.Count(row =>
@@ -321,7 +827,7 @@ public sealed class DashboardCacheService : IDashboardCacheService
         });
     }
 
-    private static DashboardCachedFile ToCachedFile(QaDashboardFileCache file)
+    private DashboardCachedFile ToCachedFile(QaDashboardFileCache file, AuthUser? user, bool includeOfflineRows)
     {
         return new DashboardCachedFile
         {
@@ -329,18 +835,35 @@ public sealed class DashboardCacheService : IDashboardCacheService
             FileName = file.FileName,
             ReportType = file.ReportType,
             LastScannedAt = file.LastScannedAt,
+            DriveModifiedTime = file.DriveModifiedTime,
+            LastDriveCheckedAt = file.LastDriveCheckedAt,
+            LastMetadataSyncedAt = file.LastMetadataSyncedAt,
+            LastLocalSyncAt = file.LastLocalSyncAt,
+            LastGoogleUpdateAt = file.LastGoogleUpdateAt,
+            SourceUrl = file.SourceUrl,
+            FolderUrl = file.FolderUrl,
             ScanStatus = file.ScanStatus,
             ScanError = file.ScanError,
-            Sheets = file.Sheets.Select(ToCachedSheet).ToList()
+            LocalTsvPath = file.LocalTsvPath,
+            PendingEditCount = file.PendingEditCount,
+            SyncStatus = file.SyncStatus,
+            SyncError = file.SyncError,
+            Sheets = file.Sheets
+                .Where(sheet => _accessService.CanSeeSheet(user, file, sheet))
+                .Select(sheet => ToCachedSheet(sheet, includeOfflineRows))
+                .ToList()
         };
     }
 
-    private static DashboardCachedSheet ToCachedSheet(QaDashboardSheetCache sheet)
+    private DashboardCachedSheet ToCachedSheet(QaDashboardSheetCache sheet, bool includeOfflineRows)
     {
+        var rows = ReadRowsForResponse(sheet, includeOfflineRows);
         return new DashboardCachedSheet
         {
             FileId = sheet.FileId,
             SheetName = sheet.SheetName,
+            SheetIndex = sheet.SheetIndex,
+            SheetGid = sheet.SheetGid,
             Module = sheet.Module,
             TotalTestCases = sheet.TotalTestCases,
             PassCount = sheet.PassCount,
@@ -359,12 +882,32 @@ public sealed class DashboardCacheService : IDashboardCacheService
             SheetLink = sheet.SheetLink,
             Link = sheet.Link,
             LastRefreshedAt = sheet.LastRefreshedAt,
+            DriveModifiedTime = sheet.DriveModifiedTime,
+            LastMetadataSyncedAt = sheet.LastMetadataSyncedAt,
+            LastLocalSyncAt = sheet.LastLocalSyncAt,
+            LastGoogleUpdateAt = sheet.LastGoogleUpdateAt,
+            LocalTsvPath = sheet.LocalTsvPath,
+            PendingEditCount = sheet.PendingEditCount,
+            SyncStatus = sheet.SyncStatus,
+            SyncError = includeOfflineRows && !File.Exists(sheet.LocalTsvPath)
+                ? "Local source not available. Download to Local first."
+                : sheet.SyncError,
             RefreshStatus = sheet.RefreshStatus,
             RefreshError = sheet.RefreshError,
-            Rows = string.IsNullOrWhiteSpace(sheet.RowsJson)
-                ? []
-                : JsonSerializer.Deserialize<IReadOnlyList<QaRow>>(sheet.RowsJson) ?? []
+            Rows = rows
         };
+    }
+
+    private IReadOnlyList<QaRow> ReadRowsForResponse(QaDashboardSheetCache sheet, bool includeOfflineRows)
+    {
+        if (includeOfflineRows)
+        {
+            return _tsvRowReader.ReadRows(sheet.LocalTsvPath);
+        }
+
+        return string.IsNullOrWhiteSpace(sheet.RowsJson)
+            ? []
+            : JsonSerializer.Deserialize<IReadOnlyList<QaRow>>(sheet.RowsJson) ?? [];
     }
 
     private static int FindHeaderRow(IList<IList<object>> values, string requiredHeader)
