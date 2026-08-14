@@ -74,7 +74,10 @@ if (app.Environment.IsDevelopment())
 // Middleware
 // ---------------------------------------------------------
 
-app.UseHttpsRedirection();
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseCors("ImpactUiCors");
 app.MapHealthChecks("/health");
