@@ -1,5 +1,6 @@
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -27,6 +28,60 @@ button:disabled {
 .secondary {
   background: #edf4f2;
   color: #176b5f;
+}
+
+.selector-panel {
+  align-items: end;
+  background: #fff;
+  border: 1px solid #dfe7ea;
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: auto minmax(260px, 1fr) minmax(220px, 0.8fr);
+  margin: 0 auto 18px;
+  max-width: 1440px;
+  padding: 18px;
+}
+
+.segmented {
+  background: #eef3f5;
+  border-radius: 8px;
+  display: inline-grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+}
+
+.segmented button {
+  background: transparent;
+  color: #41515b;
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.segmented button.active {
+  background: #176b5f;
+  color: #fff;
+}
+
+.select-field,
+.search-field {
+  color: #41515b;
+  display: grid;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 8px;
+}
+
+.select-field select,
+.search-field input {
+  background: #fff;
+  border: 1px solid #ccd8dd;
+  border-radius: 8px;
+  color: #172026;
+  min-height: 42px;
+  padding: 0 12px;
+  width: 100%;
 }
 
 .login-shell {
@@ -314,13 +369,20 @@ button:disabled {
 }
 
 .filters {
-  align-items: end;
   border-bottom: 1px solid #dfe7ea;
   display: grid;
   gap: 16px;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 16px;
   padding-bottom: 16px;
+}
+
+.search-row {
+  align-items: end;
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr auto;
+  margin-bottom: 16px;
 }
 
 .clear-button {
@@ -359,11 +421,13 @@ th {
 
 @media (max-width: 900px) {
   .login-panel,
+  .selector-panel,
   .source-grid,
   .stats-grid,
   .status-overview,
   .workbench,
-  .filters {
+  .filters,
+  .search-row {
     grid-template-columns: 1fr;
   }
 

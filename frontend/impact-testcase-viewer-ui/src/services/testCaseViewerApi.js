@@ -1,5 +1,20 @@
 const API_BASE = import.meta.env.VITE_TESTCASE_VIEWER_API_BASE ?? '';
 
+export async function login(username, password) {
+  const res = await fetch(`${API_BASE}/api/testcaseviewer/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(readErrorMessage(text) || 'Login failed');
+  }
+
+  return res.json();
+}
+
 export async function getFiles(reportType = 'master') {
   const res = await fetch(`${API_BASE}/api/testcaseviewer/files?reportType=${encodeURIComponent(reportType)}`);
   if (!res.ok) {
@@ -35,6 +50,16 @@ async function getJson(path, fallbackMessage) {
     throw new Error(text || fallbackMessage);
   }
   return res.json();
+}
+
+function readErrorMessage(text) {
+  if (!text) return '';
+  try {
+    const parsed = JSON.parse(text);
+    return parsed.message || parsed.title || text;
+  } catch {
+    return text;
+  }
 }
 
 export async function getFile(fileId) {
