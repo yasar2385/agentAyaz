@@ -60,9 +60,21 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
             TotalSheets = sheets.Count
         };
 
-        foreach (var sheet in sheets)
+        if (sheets.Count == 0)
         {
-            var rows = await ReadParsedRowsAsync(fileId, sheet.Name, cancellationToken);
+            return summary;
+        }
+
+        var request = _sheetsService.Spreadsheets.Values.BatchGet(fileId);
+        request.Ranges = sheets.Select(sheet => BuildRange(sheet.Name)).ToList();
+        var response = await request.ExecuteAsync(cancellationToken);
+        var valueRanges = response.ValueRanges ?? [];
+
+        for (var i = 0; i < sheets.Count; i++)
+        {
+            var sheet = sheets[i];
+            var values = i < valueRanges.Count ? valueRanges[i].Values ?? [] : [];
+            var rows = _parser.ParseRows(fileId, sheet.Name, values);
             var sheetSummary = new SheetSummary
             {
                 SheetName = sheet.Name,
@@ -83,7 +95,7 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
 
     private async Task<IReadOnlyList<QaRow>> ReadParsedRowsAsync(string fileId, string sheetName, CancellationToken cancellationToken)
     {
-        var range = $"'{EscapeSheetName(sheetName)}'!A:Z";
+        var range = BuildRange(sheetName);
         var request = _sheetsService.Spreadsheets.Values.Get(fileId, range);
         var response = await request.ExecuteAsync(cancellationToken);
         return _parser.ParseRows(fileId, sheetName, response.Values ?? []);
@@ -115,4 +127,6 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
     }
 
     private static string EscapeSheetName(string sheetName) => sheetName.Replace("'", "''");
+
+    private static string BuildRange(string sheetName) => $"'{EscapeSheetName(sheetName)}'!A:Z";
 }
