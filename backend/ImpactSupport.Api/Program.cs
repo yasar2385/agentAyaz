@@ -25,6 +25,7 @@ builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection("Goog
 builder.Services.Configure<TestCaseViewerOptions>(builder.Configuration.GetSection("TestCaseViewer"));
 builder.Services.Configure<MongoAuthOptions>(builder.Configuration.GetSection("MongoAuth"));
 builder.Services.AddSingleton<IGoogleCredentialProvider, GoogleCredentialProvider>();
+builder.Services.AddSingleton<IGoogleDriveFileLister, GoogleDriveFileLister>();
 builder.Services.AddSingleton<IGoogleDriveService, GoogleDriveService>();
 builder.Services.AddSingleton<IQaSheetParser, QaSheetParser>();
 builder.Services.AddSingleton<IGoogleSheetsService, GoogleSheetsService>();

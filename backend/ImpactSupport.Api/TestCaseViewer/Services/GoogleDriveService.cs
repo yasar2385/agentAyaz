@@ -1,26 +1,22 @@
-﻿using Google.Apis.Drive.v3;
-using Google.Apis.Services;
 using ImpactSupport.Api.TestCaseViewer.Models;
 using ImpactSupport.Api.TestCaseViewer.Options;
 using Microsoft.Extensions.Options;
+using DriveFile = Google.Apis.Drive.v3.Data.File;
 
 namespace ImpactSupport.Api.TestCaseViewer.Services;
 
 public sealed class GoogleDriveService : IGoogleDriveService
 {
     private const string SpreadsheetMimeType = "application/vnd.google-apps.spreadsheet";
+    private const string FolderMimeType = "application/vnd.google-apps.folder";
 
-    private readonly DriveService _driveService;
+    private readonly IGoogleDriveFileLister _fileLister;
     private readonly GoogleOptions _options;
 
-    public GoogleDriveService(IGoogleCredentialProvider credentialProvider, IOptions<GoogleOptions> options){
+    public GoogleDriveService(IGoogleDriveFileLister fileLister, IOptions<GoogleOptions> options)
+    {
+        _fileLister = fileLister;
         _options = options.Value;
-
-        _driveService = new DriveService(new BaseClientService.Initializer
-        {
-            HttpClientInitializer = credentialProvider.GetCredential(),
-            ApplicationName = "ImpactSupport.TestCaseViewer"
-        });
     }
 
     public async Task<IReadOnlyList<GoogleFileInfo>> GetFilesAsync(
@@ -40,31 +36,18 @@ public sealed class GoogleDriveService : IGoogleDriveService
                 $"No folder configured for report type '{reportType}'.");
         }
 
-        var request = _driveService.Files.List();
-        request.Q = $"'{folderId}' in parents and trashed = false and mimeType = '{SpreadsheetMimeType}'";
-        request.Fields = "files(id, name, mimeType, modifiedTime)";
-        request.OrderBy = "modifiedTime desc";
-
-        var response = await request.ExecuteAsync(cancellationToken);
-
-        var files = response.Files
-            .Select(f => new GoogleFileInfo
-            {
-                Id = f.Id,
-                Name = f.Name,
-                MimeType = f.MimeType,
-                ModifiedTime = f.ModifiedTimeDateTimeOffset
-            })
-            .ToList();
-
         if (reportType.Equals("regression", StringComparison.OrdinalIgnoreCase))
         {
-            files = files
-                .Where(f => f.Name.StartsWith(_options.RegressionFilePrefix, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            return await GetRegressionFilesAsync(folderId, cancellationToken);
         }
 
-        return files;
+        var files = await _fileLister.ListFilesAsync(
+            folderId,
+            SpreadsheetMimeType,
+            "modifiedTime desc",
+            cancellationToken);
+
+        return files.Select(ToGoogleFileInfo).ToList();
     }
 
     public async Task<GoogleFileInfo?> GetFileAsync(string fileId, CancellationToken cancellationToken = default)
@@ -72,12 +55,56 @@ public sealed class GoogleDriveService : IGoogleDriveService
         if (string.IsNullOrWhiteSpace(fileId))
             throw new ArgumentException("fileId must be provided", nameof(fileId));
 
-        var request = _driveService.Files.Get(fileId);
-        request.Fields = "id,name,mimeType,modifiedTime";
-
-        var file = await request.ExecuteAsync(cancellationToken);
+        var file = await _fileLister.GetFileAsync(fileId, cancellationToken);
         if (file == null) return null;
 
+        return ToGoogleFileInfo(file);
+    }
+
+    private async Task<IReadOnlyList<GoogleFileInfo>> GetRegressionFilesAsync(
+        string folderId,
+        CancellationToken cancellationToken)
+    {
+        var files = new List<GoogleFileInfo>();
+        await AddRegressionFilesAsync(folderId, files, cancellationToken);
+
+        return files
+            .Where(f => f.Name.StartsWith(_options.RegressionFilePrefix, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(f => f.ModifiedTime)
+            .ToList();
+    }
+
+    private async Task AddRegressionFilesAsync(
+        string folderId,
+        ICollection<GoogleFileInfo> files,
+        CancellationToken cancellationToken)
+    {
+        var spreadsheetFiles = await _fileLister.ListFilesAsync(
+            folderId,
+            SpreadsheetMimeType,
+            cancellationToken: cancellationToken);
+
+        foreach (var file in spreadsheetFiles)
+        {
+            files.Add(ToGoogleFileInfo(file));
+        }
+
+        var folders = await _fileLister.ListFilesAsync(
+            folderId,
+            FolderMimeType,
+            cancellationToken: cancellationToken);
+
+        foreach (var folder in folders)
+        {
+            if (!string.IsNullOrWhiteSpace(folder.Id))
+            {
+                await AddRegressionFilesAsync(folder.Id, files, cancellationToken);
+            }
+        }
+    }
+
+    private static GoogleFileInfo ToGoogleFileInfo(DriveFile file)
+    {
         return new GoogleFileInfo
         {
             Id = file.Id,
@@ -86,7 +113,4 @@ public sealed class GoogleDriveService : IGoogleDriveService
             ModifiedTime = file.ModifiedTimeDateTimeOffset
         };
     }
-
-
-
 }
