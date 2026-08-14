@@ -28,7 +28,8 @@ builder.Services.AddSingleton<IGoogleCredentialProvider, GoogleCredentialProvide
 builder.Services.AddSingleton<IGoogleDriveService, GoogleDriveService>();
 builder.Services.AddSingleton<IQaSheetParser, QaSheetParser>();
 builder.Services.AddSingleton<IGoogleSheetsService, GoogleSheetsService>();
-builder.Services.AddSingleton<IUserAuthService, MongoUserAuthService>();
+builder.Services.AddScoped<IUserAuthService, SqliteUserAuthService>();
+builder.Services.AddHostedService<SelectedMongoUserImportService>();
 
 builder.Services.AddCors(options =>
 {

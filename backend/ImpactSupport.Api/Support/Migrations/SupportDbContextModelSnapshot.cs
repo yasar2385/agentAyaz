@@ -17,7 +17,7 @@ namespace ImpactSupport.Api.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
 
-            modelBuilder.Entity("ImpactSupport.Api.Data.SupportMessage", b =>
+            modelBuilder.Entity("ImpactSupport.Api.Support.Data.SupportMessage", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -62,7 +62,7 @@ namespace ImpactSupport.Api.Migrations
                     b.ToTable("SupportMessages");
                 });
 
-            modelBuilder.Entity("ImpactSupport.Api.Data.SupportSession", b =>
+            modelBuilder.Entity("ImpactSupport.Api.Support.Data.SupportSession", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -132,9 +132,63 @@ namespace ImpactSupport.Api.Migrations
                     b.ToTable("SupportSessions");
                 });
 
-            modelBuilder.Entity("ImpactSupport.Api.Data.SupportMessage", b =>
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestCaseViewerUser", b =>
                 {
-                    b.HasOne("ImpactSupport.Api.Data.SupportSession", "SupportSession")
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("MongoId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RoleJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("UpdatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MongoId")
+                        .IsUnique();
+
+                    b.HasIndex("Username")
+                        .IsUnique();
+
+                    b.ToTable("TestCaseViewerUsers");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.Support.Data.SupportMessage", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.Support.Data.SupportSession", "SupportSession")
                         .WithMany("Messages")
                         .HasForeignKey("SupportSessionId")
                         .HasPrincipalKey("SupportSessionId")
@@ -144,7 +198,7 @@ namespace ImpactSupport.Api.Migrations
                     b.Navigation("SupportSession");
                 });
 
-            modelBuilder.Entity("ImpactSupport.Api.Data.SupportSession", b =>
+            modelBuilder.Entity("ImpactSupport.Api.Support.Data.SupportSession", b =>
                 {
                     b.Navigation("Messages");
                 });

@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_","ns":"xmleditor.User"}],"uuid":"95b263545420437f9b244752a4f2e8f8","collectionName":"User","type":"collection"}

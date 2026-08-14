@@ -1,5 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 
+using ImpactSupport.Api.TestCaseViewer.Data;
+
 namespace ImpactSupport.Api.Support.Data;
 
 public sealed class SupportDbContext : DbContext
@@ -11,6 +13,7 @@ public sealed class SupportDbContext : DbContext
 
     public DbSet<SupportSession> SupportSessions => Set<SupportSession>();
     public DbSet<SupportMessage> SupportMessages => Set<SupportMessage>();
+    public DbSet<TestCaseViewerUser> TestCaseViewerUsers => Set<TestCaseViewerUser>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -46,6 +49,20 @@ public sealed class SupportDbContext : DbContext
                 .WithMany(x => x.Messages)
                 .HasPrincipalKey(x => x.SupportSessionId)
                 .HasForeignKey(x => x.SupportSessionId);
+        });
+
+        modelBuilder.Entity<TestCaseViewerUser>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.MongoId).IsUnique();
+            entity.HasIndex(x => x.Username).IsUnique();
+
+            entity.Property(x => x.MongoId).IsRequired();
+            entity.Property(x => x.Username).IsRequired();
+            entity.Property(x => x.Email).IsRequired();
+            entity.Property(x => x.DisplayName).IsRequired();
+            entity.Property(x => x.PasswordHash).IsRequired();
+            entity.Property(x => x.RoleJson).IsRequired();
         });
     }
 }

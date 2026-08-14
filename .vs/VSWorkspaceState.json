@@ -2,8 +2,15 @@
   "ExpandedNodes": [
     "",
     "\\backend",
-    "\\backend\\ImpactTestCasesViewer.Api",
-    "\\backend\\ImpactTestCasesViewer.Api\\Options"
+    "\\backend\\ImpactSupport.Api",
+    "\\backend\\ImpactSupport.Api\\TestCaseViewer",
+    "\\backend\\ImpactSupport.Api\\TestCaseViewer\\Controllers",
+    "\\frontend",
+    "\\frontend\\impact-testcase-viewer-ui\\src",
+    "\\frontend\\impact-testcase-viewer-ui\\src\\components",
+    "\\frontend\\impact-testcase-viewer-ui\\src\\components\\TestCaseViewer",
+    "\\frontend\\impact-testcase-viewer-ui\\src\\services"
   ],
+  "SelectedNode": "\\backend\\ImpactSupport.Api\\appsettings.Development.json",
   "PreviewInSolutionExplorer": false
 }
