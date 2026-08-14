@@ -36,6 +36,25 @@ export async function getDashboardSummary(fileId) {
   return getJson(`/api/testcaseviewer/files/${encodeURIComponent(fileId)}/dashboard-summary`, 'Failed to fetch dashboard summary');
 }
 
+export async function getDashboardCache(reportType = 'master') {
+  return getJson(
+    `/api/testcaseviewer/dashboard-cache?reportType=${encodeURIComponent(reportType)}`,
+    'Failed to fetch dashboard cache',
+  );
+}
+
+export async function refreshDashboardFile(payload) {
+  return postJson('/api/testcaseviewer/dashboard-cache/refresh-file', payload, 'Failed to refresh dashboard file');
+}
+
+export async function refreshDashboardSheet(payload) {
+  return postJson('/api/testcaseviewer/dashboard-cache/refresh-sheet', payload, 'Failed to refresh dashboard sheet');
+}
+
+export async function refreshRegressionIndex() {
+  return postJson('/api/testcaseviewer/dashboard-cache/refresh-regression-index', {}, 'Failed to refresh regression index');
+}
+
 export async function getSheetRows(fileId, sheetName) {
   return getJson(
     `/api/testcaseviewer/files/${encodeURIComponent(fileId)}/sheets/${encodeURIComponent(sheetName)}/rows`,
@@ -48,6 +67,19 @@ async function getJson(path, fallbackMessage) {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || fallbackMessage);
+  }
+  return res.json();
+}
+
+async function postJson(path, payload, fallbackMessage) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(readErrorMessage(text) || fallbackMessage);
   }
   return res.json();
 }

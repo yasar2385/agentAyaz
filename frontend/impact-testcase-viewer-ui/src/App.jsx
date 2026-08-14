@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react'
 import './App.css'
 import {
-  getDashboardSummary,
-  getFiles,
-  getKnownFile,
-  getSheetRows,
-  getSheets,
+  getDashboardCache,
+  refreshDashboardFile,
+  refreshDashboardSheet,
+  refreshRegressionIndex,
   login,
 } from './services/testCaseViewerApi'
 
@@ -204,6 +203,74 @@ function isPostponedRow(row) {
   return ['postpon', 'future development', 'future dev', 'defer', 'later', 'hold'].some(term => value.includes(term))
 }
 
+function cacheFileToOption(file) {
+  return {
+    id: file.fileId,
+    name: file.fileName,
+    reportType: file.reportType,
+    lastScannedAt: file.lastScannedAt,
+    scanStatus: file.scanStatus,
+    scanError: file.scanError,
+    sheets: file.sheets ?? [],
+  }
+}
+
+function cacheSheetToInfo(sheet, index) {
+  return {
+    name: sheet.sheetName,
+    index,
+    rowCount: sheet.totalTestCases ?? 0,
+    columnCount: 0,
+  }
+}
+
+function cacheSheetToRowsResponse(fileId, sheet) {
+  return {
+    fileId,
+    sheetName: sheet?.sheetName ?? '',
+    rows: sheet?.rows ?? [],
+    qaStatuses: uniqueValues(sheet?.rows ?? [], 'qaStatus'),
+    devStatuses: uniqueValues(sheet?.rows ?? [], 'devStatus'),
+  }
+}
+
+function cacheFileToSummary(file) {
+  const sheets = file?.sheets ?? []
+  const qaStatusCounts = {}
+  const devStatusCounts = {}
+  let totalTestCases = 0
+
+  sheets.forEach(sheet => {
+    totalTestCases += sheet.totalTestCases ?? 0
+    addCount(qaStatusCounts, 'Pass', sheet.passCount)
+    addCount(qaStatusCounts, 'Failed', sheet.failedCount)
+    addCount(qaStatusCounts, 'Postponed', sheet.postponedCount)
+    addCount(qaStatusCounts, 'WIP', sheet.wipCount)
+    addCount(qaStatusCounts, 'Not clear', sheet.notClearCount)
+    addCount(qaStatusCounts, 'Future Development', sheet.futureDevelopmentCount)
+    addCount(devStatusCounts, sheet.devStatus || 'Pending', sheet.devStatus ? 1 : 0)
+  })
+
+  return {
+    fileId: file?.fileId ?? '',
+    totalSheets: sheets.length,
+    totalTestCases,
+    qaStatusCounts,
+    devStatusCounts,
+    sheets: sheets.map(sheet => ({
+      sheetName: sheet.sheetName,
+      module: sheet.module || sheet.purposeOfTesting,
+      totalTestCases: sheet.totalTestCases ?? 0,
+      qaStatusCounts: {},
+      devStatusCounts: {},
+    })),
+  }
+}
+
+function addCount(target, label, count = 0) {
+  if (count > 0) target[label] = (target[label] ?? 0) + count
+}
+
 function rowMatchesSearch(row, search) {
   if (!search.trim()) return true
   const value = search.toLowerCase()
@@ -274,6 +341,7 @@ function RowTable({ rows, rowsLoading, emptyMessage }) {
 
 function DashboardPage({ user, onLogout }) {
   const [reportType, setReportType] = useState(REPORT_TYPES.master)
+  const [, setCacheByReport] = useState({ master: null, regression: null })
   const [knownFile, setKnownFile] = useState(null)
   const [masterFiles, setMasterFiles] = useState([])
   const [regressionFiles, setRegressionFiles] = useState([])
@@ -293,6 +361,7 @@ function DashboardPage({ user, onLogout }) {
   const [loading, setLoading] = useState(false)
   const [rowsLoading, setRowsLoading] = useState(false)
   const [error, setError] = useState('')
+  const [dashboardLoaded, setDashboardLoaded] = useState(false)
 
   async function loadDashboard(nextReportType = reportType) {
     setLoading(true)
@@ -300,27 +369,30 @@ function DashboardPage({ user, onLogout }) {
     clearSelection()
 
     try {
-      const [known, masters, regressions] = await Promise.all([
-        getKnownFile(DEFAULT_FILE_NAME),
-        getFiles('master'),
-        getFiles('regression'),
+      const [masterCache, regressionCache] = await Promise.all([
+        getDashboardCache(REPORT_TYPES.master),
+        getDashboardCache(REPORT_TYPES.regression),
       ])
 
-      setKnownFile(known)
+      setCacheByReport({ master: masterCache, regression: regressionCache })
+      const masters = masterCache.files.map(cacheFileToOption)
+      const regressions = regressionCache.files.map(cacheFileToOption)
+      setKnownFile(masters[0] ?? { id: '', name: DEFAULT_FILE_NAME, sheets: [], scanStatus: 'NotStarted' })
       setMasterFiles(masters)
       setRegressionFiles(regressions)
 
       if (nextReportType === REPORT_TYPES.master) {
-        await loadFile(known)
+        loadCachedFile(masters[0] ?? null)
       } else {
         const firstRegression = regressions[0] ?? null
         if (firstRegression) {
-          await loadFile(firstRegression)
+          loadCachedFile(firstRegression)
         }
       }
     } catch (err) {
       setError(err.message || 'Unable to load dashboard.')
     } finally {
+      setDashboardLoaded(true)
       setLoading(false)
     }
   }
@@ -346,52 +418,97 @@ function DashboardPage({ user, onLogout }) {
   }
 
   async function loadFile(file) {
-    if (!file?.id) return
+    loadCachedFile(file)
+  }
 
+  function loadCachedFile(file) {
+    if (!file?.id) return
     setSelectedFile(file)
     setSelectedFileId(file.id)
-    setSheets([])
-    setSummary(null)
-    setSelectedSheet('')
-    setSheetRows(null)
-    setAllSheetRows([])
-    setActiveView(VIEW_TYPES.sheet)
-    clearFilters()
-
-    const [sheetList, dashboardSummary] = await Promise.all([
-      getSheets(file.id),
-      getDashboardSummary(file.id),
-    ])
+    const cachedSheets = file.sheets ?? []
+    const sheetList = cachedSheets.map(cacheSheetToInfo)
+    const dashboardSummary = cacheFileToSummary({
+      fileId: file.id,
+      sheets: cachedSheets,
+    })
+    const firstSheet = sheetList[0]?.name ?? ''
 
     setSheets(sheetList)
     setSummary(dashboardSummary)
-    const firstSheet = sheetList[0]?.name ?? ''
     setSelectedSheet(firstSheet)
-    if (sheetList.length > 0) {
-      const sheetResponses = await Promise.all(sheetList.map(sheet => getSheetRows(file.id, sheet.name)))
-      const everyRow = sheetResponses.flatMap(response => response.rows ?? [])
-      setAllSheetRows(everyRow)
-      const firstResponse = sheetResponses.find(response => response.sheetName === firstSheet)
-      setSheetRows(firstResponse ?? null)
+    setSheetRows(firstSheet ? cacheSheetToRowsResponse(file.id, cachedSheets[0]) : null)
+    setAllSheetRows(cachedSheets.flatMap(sheet => sheet.rows ?? []))
+    setActiveView(VIEW_TYPES.sheet)
+    clearFilters()
+  }
+
+  function applyCacheResponse(cacheResponse, nextReportType = reportType, nextFileId = selectedFileId) {
+    setCacheByReport(current => ({ ...current, [nextReportType]: cacheResponse }))
+    const files = cacheResponse.files.map(cacheFileToOption)
+
+    if (nextReportType === REPORT_TYPES.master) {
+      setKnownFile(files[0] ?? { id: '', name: DEFAULT_FILE_NAME, sheets: [], scanStatus: 'NotStarted' })
+      setMasterFiles(files)
+    } else {
+      setRegressionFiles(files)
+    }
+
+    const nextFile = files.find(file => file.id === nextFileId) ?? files[0] ?? null
+    if (nextReportType === reportType) {
+      loadCachedFile(nextFile)
     }
   }
 
-  async function loadRows(fileId, sheetName) {
+  async function refreshCurrentIndex() {
+    setLoading(true)
+    setError('')
+    try {
+      const response = reportType === REPORT_TYPES.regression
+        ? await refreshRegressionIndex()
+        : await refreshDashboardFile({ reportType: REPORT_TYPES.master, fileName: DEFAULT_FILE_NAME })
+      applyCacheResponse(response)
+    } catch (err) {
+      setError(err.message || 'Unable to refresh index.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function refreshSelectedSheet() {
+    if (!selectedFileId || !selectedSheet) return
     setRowsLoading(true)
     setError('')
-    clearFilters()
-
     try {
-      const response = await getSheetRows(fileId, sheetName)
-      setSheetRows(response)
-      setAllSheetRows(currentRows => {
-        const otherRows = currentRows.filter(row => row.sheetName !== sheetName)
-        return [...otherRows, ...(response.rows ?? [])]
+      const response = await refreshDashboardSheet({
+        reportType,
+        fileId: selectedFileId,
+        fileName: selectedFile?.name ?? '',
+        sheetName: selectedSheet,
       })
+      applyCacheResponse(response, reportType, selectedFileId)
+      setActiveView(VIEW_TYPES.sheet)
     } catch (err) {
-      setError(err.message || 'Unable to load sheet rows.')
+      setError(err.message || 'Unable to refresh selected sheet.')
     } finally {
       setRowsLoading(false)
+    }
+  }
+
+  async function analyzeSelectedRegressionFile() {
+    if (!selectedFileId) return
+    setLoading(true)
+    setError('')
+    try {
+      const response = await refreshDashboardFile({
+        reportType: REPORT_TYPES.regression,
+        fileId: selectedFileId,
+        fileName: selectedFile?.name ?? '',
+      })
+      applyCacheResponse(response, REPORT_TYPES.regression, selectedFileId)
+    } catch (err) {
+      setError(err.message || 'Unable to analyze regression file.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -414,16 +531,15 @@ function DashboardPage({ user, onLogout }) {
     const source = reportType === REPORT_TYPES.master ? [knownFile, ...masterFiles] : regressionFiles
     const file = source.find(item => item?.id === fileId)
     if (file) {
-      await loadFile(file)
+      loadCachedFile(file)
     }
   }
 
   function selectSheet(sheetName) {
     setSelectedSheet(sheetName)
     setActiveView(VIEW_TYPES.sheet)
-    if (selectedFileId) {
-      loadRows(selectedFileId, sheetName)
-    }
+    const cachedSheet = selectedFile?.sheets?.find(sheet => sheet.sheetName === sheetName)
+    setSheetRows(cacheSheetToRowsResponse(selectedFileId, cachedSheet))
   }
 
   const rows = useMemo(() => sheetRows?.rows ?? [], [sheetRows])
@@ -510,7 +626,7 @@ function DashboardPage({ user, onLogout }) {
         </div>
       </header>
 
-      {!summary && !loading && !error && (
+      {!dashboardLoaded && !summary && !loading && !error && (
         <section className="empty-state">
           <h2>Connect the dashboard</h2>
           <p>Load `Testcase_2026` and all regression sheets from the configured .NET API.</p>
@@ -521,7 +637,7 @@ function DashboardPage({ user, onLogout }) {
       {loading && <section className="notice">Loading data from ImpactSupport.Api...</section>}
       {error && <section className="notice error">{error}</section>}
 
-      {(summary || knownFile || regressionFiles.length > 0) && (
+      {(dashboardLoaded || summary || knownFile || regressionFiles.length > 0) && (
         <>
           <section className="selector-panel">
             <div className="segmented">
@@ -541,6 +657,10 @@ function DashboardPage({ user, onLogout }) {
               </button>
             </div>
 
+            <button className="secondary" type="button" onClick={refreshCurrentIndex} disabled={loading}>
+              Refresh index
+            </button>
+
             <SelectField
               label={reportType === REPORT_TYPES.master ? 'Master source' : 'Regression file'}
               value={selectedFileId}
@@ -556,13 +676,23 @@ function DashboardPage({ user, onLogout }) {
               onChange={selectSheet}
               placeholder="Select sheet"
             />
+
+            <button className="secondary" type="button" onClick={refreshSelectedSheet} disabled={rowsLoading || !selectedSheet}>
+              Refresh selected sheet
+            </button>
+
+            {reportType === REPORT_TYPES.regression && (
+              <button className="secondary" type="button" onClick={analyzeSelectedRegressionFile} disabled={loading || !selectedFileId}>
+                Analyze selected regression file
+              </button>
+            )}
           </section>
 
           <section className="source-grid">
             <article>
               <span>Selected source</span>
               <strong>{selectedFile?.name ?? DEFAULT_FILE_NAME}</strong>
-              <small>{selectedFileId || knownFile?.id}</small>
+              <small>{selectedFile?.scanStatus || 'Cache'} {selectedFile?.lastScannedAt ? `updated ${new Date(selectedFile.lastScannedAt).toLocaleString()}` : ''}</small>
             </article>
             <article>
               <span>Testcase_2026</span>
@@ -575,6 +705,8 @@ function DashboardPage({ user, onLogout }) {
               <small>starts with Regression</small>
             </article>
           </section>
+
+          {selectedFile?.scanError && <section className="notice error compact">{selectedFile.scanError}</section>}
 
           {summary && (
             <>

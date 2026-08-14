@@ -51,6 +51,16 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
         };
     }
 
+    public async Task<IList<IList<object>>> GetValuesAsync(
+        string fileId,
+        string sheetName,
+        CancellationToken cancellationToken = default)
+    {
+        var request = _sheetsService.Spreadsheets.Values.Get(fileId, BuildRange(sheetName));
+        var response = await request.ExecuteAsync(cancellationToken);
+        return response.Values ?? [];
+    }
+
     public async Task<DashboardSummary> GetDashboardSummaryAsync(string fileId, CancellationToken cancellationToken = default)
     {
         var sheets = await GetSheetsAsync(fileId, cancellationToken);
@@ -95,10 +105,7 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
 
     private async Task<IReadOnlyList<QaRow>> ReadParsedRowsAsync(string fileId, string sheetName, CancellationToken cancellationToken)
     {
-        var range = BuildRange(sheetName);
-        var request = _sheetsService.Spreadsheets.Values.Get(fileId, range);
-        var response = await request.ExecuteAsync(cancellationToken);
-        return _parser.ParseRows(fileId, sheetName, response.Values ?? []);
+        return _parser.ParseRows(fileId, sheetName, await GetValuesAsync(fileId, sheetName, cancellationToken));
     }
 
     private static IReadOnlyList<string> DistinctStatuses(IEnumerable<string> statuses)

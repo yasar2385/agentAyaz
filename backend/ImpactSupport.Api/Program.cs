@@ -30,6 +30,7 @@ builder.Services.AddSingleton<IGoogleDriveService, GoogleDriveService>();
 builder.Services.AddSingleton<IQaSheetParser, QaSheetParser>();
 builder.Services.AddSingleton<IGoogleSheetsService, GoogleSheetsService>();
 builder.Services.AddScoped<IUserAuthService, SqliteUserAuthService>();
+builder.Services.AddScoped<IDashboardCacheService, DashboardCacheService>();
 builder.Services.AddHostedService<SelectedMongoUserImportService>();
 
 builder.Services.AddCors(options =>
