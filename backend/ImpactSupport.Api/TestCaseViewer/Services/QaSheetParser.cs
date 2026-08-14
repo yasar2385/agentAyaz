@@ -39,6 +39,7 @@ public sealed class QaSheetParser : IQaSheetParser
                 IssueType = Get(raw, map, "Issue Type"),
                 QaStatus = Get(raw, map, "QA Status"),
                 DevStatus = Get(raw, map, "Dev. Status"),
+                Rounds = GetRounds(raw, header),
                 QaRemarks = GetRepeated(raw, header, "QA Remarks"),
                 DevRemarks = GetRepeated(raw, header, "Dev. Remarks")
             };
@@ -79,6 +80,48 @@ public sealed class QaSheetParser : IQaSheetParser
             .Select(x => x.index < row.Count ? CellText(row[x.index]) : string.Empty)
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .ToList();
+    }
+
+    private static List<QaRound> GetRounds(IList<object> row, IReadOnlyList<string> header)
+    {
+        var qaStatusIndexes = HeaderIndexes(header, "QA Status");
+        var devStatusIndexes = HeaderIndexes(header, "Dev. Status");
+        var maxRounds = Math.Max(qaStatusIndexes.Count, devStatusIndexes.Count);
+        var rounds = new List<QaRound>();
+
+        for (var i = 0; i < maxRounds; i++)
+        {
+            var qaStatus = i < qaStatusIndexes.Count ? GetAt(row, qaStatusIndexes[i]) : string.Empty;
+            var devStatus = i < devStatusIndexes.Count ? GetAt(row, devStatusIndexes[i]) : string.Empty;
+
+            if (string.IsNullOrWhiteSpace(qaStatus) && string.IsNullOrWhiteSpace(devStatus))
+            {
+                continue;
+            }
+
+            rounds.Add(new QaRound
+            {
+                RoundNumber = i + 1,
+                QaStatus = qaStatus,
+                DevStatus = devStatus
+            });
+        }
+
+        return rounds;
+    }
+
+    private static List<int> HeaderIndexes(IReadOnlyList<string> header, string name)
+    {
+        return header
+            .Select((value, index) => new { value, index })
+            .Where(x => string.Equals(x.value, name, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.index)
+            .ToList();
+    }
+
+    private static string GetAt(IList<object> row, int index)
+    {
+        return index < row.Count ? CellText(row[index]) : string.Empty;
     }
 
     private static bool HasContent(QaRow row)

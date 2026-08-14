@@ -64,6 +64,28 @@ button:disabled {
   color: #fff;
 }
 
+.view-tabs {
+  background: #eef3f5;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 16px;
+  padding: 4px;
+}
+
+.view-tabs button {
+  background: transparent;
+  color: #41515b;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.view-tabs button.active {
+  background: #176b5f;
+  color: #fff;
+}
+
 .select-field,
 .search-field {
   color: #41515b;
@@ -393,10 +415,58 @@ button:disabled {
   overflow: auto;
 }
 
+.group-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.result-group {
+  border: 1px solid #dfe7ea;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.group-heading,
+.sheet-group-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.group-heading {
+  background: #f5f8f9;
+  border-bottom: 1px solid #dfe7ea;
+  padding: 14px 16px;
+}
+
+.group-heading h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.group-heading span,
+.sheet-group-heading span {
+  color: #657782;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sheet-group {
+  padding: 14px;
+}
+
+.sheet-group + .sheet-group {
+  border-top: 1px solid #e8eef1;
+}
+
+.sheet-group-heading {
+  margin-bottom: 10px;
+}
+
 table {
   border-collapse: collapse;
   font-size: 13px;
-  min-width: 980px;
+  min-width: 1120px;
   width: 100%;
 }
 
@@ -427,7 +497,8 @@ th {
   .status-overview,
   .workbench,
   .filters,
-  .search-row {
+  .search-row,
+  .view-tabs {
     grid-template-columns: 1fr;
   }
 

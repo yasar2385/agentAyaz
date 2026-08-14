@@ -15,6 +15,12 @@ const REPORT_TYPES = {
   master: 'master',
   regression: 'regression',
 }
+const VIEW_TYPES = {
+  sheet: 'sheet',
+  module: 'module',
+  repeated: 'repeated',
+  postponed: 'postponed',
+}
 
 function LoginPage({ onLogin }) {
   const [username, setUsername] = useState('')
@@ -146,6 +152,58 @@ function uniqueValues(rows, key) {
   )
 }
 
+function latestRound(row) {
+  const rounds = row.rounds ?? []
+  return rounds.length > 0 ? rounds[rounds.length - 1] : null
+}
+
+function roundLabel(row) {
+  const round = latestRound(row)
+  return round ? `R${round.roundNumber}` : 'R1'
+}
+
+function groupRows(rows, keySelector) {
+  return rows.reduce((groups, row) => {
+    const key = keySelector(row) || 'Unassigned'
+    const existing = groups.get(key) ?? []
+    existing.push(row)
+    groups.set(key, existing)
+    return groups
+  }, new Map())
+}
+
+function groupEntries(rows, keySelector) {
+  return [...groupRows(rows, keySelector).entries()].sort(([a], [b]) => a.localeCompare(b))
+}
+
+function statusIsProblem(status) {
+  const value = String(status ?? '').toLowerCase()
+  return ['fail', 'failed', 'reject', 'reopen', 'error', 'bug'].some(term => value.includes(term))
+}
+
+function isRepeatedRow(row, duplicateKeys) {
+  const identity = row.testCaseId || row.testCaseNo
+  return (
+    (identity && duplicateKeys.has(identity)) ||
+    statusIsProblem(row.qaStatus) ||
+    statusIsProblem(row.devStatus) ||
+    statusIsProblem(row.issueType)
+  )
+}
+
+function isPostponedRow(row) {
+  const value = [
+    row.issueType,
+    row.qaStatus,
+    row.devStatus,
+    row.actualResult,
+    ...(row.qaRemarks ?? []),
+    ...(row.devRemarks ?? []),
+  ].join(' ').toLowerCase()
+
+  return ['postpon', 'future development', 'future dev', 'defer', 'later', 'hold'].some(term => value.includes(term))
+}
+
 function rowMatchesSearch(row, search) {
   if (!search.trim()) return true
   const value = search.toLowerCase()
@@ -158,11 +216,60 @@ function rowMatchesSearch(row, search) {
     row.issueType,
     row.qaStatus,
     row.devStatus,
+    ...(row.rounds ?? []).flatMap(round => [round.qaStatus, round.devStatus, `round ${round.roundNumber}`]),
     ...(row.qaRemarks ?? []),
     ...(row.devRemarks ?? []),
   ]
 
   return searchable.some(item => String(item ?? '').toLowerCase().includes(value))
+}
+
+function RowTable({ rows, rowsLoading, emptyMessage }) {
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>TC No.</th>
+            <th>TC ID</th>
+            <th>Module</th>
+            <th>Description</th>
+            <th>Round</th>
+            <th>QA Status</th>
+            <th>Dev. Status</th>
+            <th>Issue Type</th>
+            <th>Actual Result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => {
+            const round = latestRound(row)
+            const qaStatus = round?.qaStatus || row.qaStatus || ''
+            const devStatus = round?.devStatus || row.devStatus || ''
+
+            return (
+              <tr key={`${row.sheetName}-${row.testCaseId}-${row.testCaseNo}-${index}`}>
+                <td>{row.testCaseNo}</td>
+                <td>{row.testCaseId}</td>
+                <td>{row.module}</td>
+                <td>{row.description}</td>
+                <td><StatusPill label={roundLabel(row)} /></td>
+                <td><StatusPill label={qaStatus || 'Blank'} tone={statusTone(qaStatus)} /></td>
+                <td><StatusPill label={devStatus || 'Blank'} tone={statusTone(devStatus)} /></td>
+                <td>{row.issueType}</td>
+                <td>{row.actualResult}</td>
+              </tr>
+            )
+          })}
+          {!rowsLoading && rows.length === 0 && (
+            <tr>
+              <td colSpan="9" className="empty-cell">{emptyMessage}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 function DashboardPage({ user, onLogout }) {
@@ -176,6 +283,8 @@ function DashboardPage({ user, onLogout }) {
   const [summary, setSummary] = useState(null)
   const [selectedSheet, setSelectedSheet] = useState('')
   const [sheetRows, setSheetRows] = useState(null)
+  const [allSheetRows, setAllSheetRows] = useState([])
+  const [activeView, setActiveView] = useState(VIEW_TYPES.sheet)
   const [search, setSearch] = useState('')
   const [qaFilters, setQaFilters] = useState([])
   const [devFilters, setDevFilters] = useState([])
@@ -223,6 +332,8 @@ function DashboardPage({ user, onLogout }) {
     setSummary(null)
     setSelectedSheet('')
     setSheetRows(null)
+    setAllSheetRows([])
+    setActiveView(VIEW_TYPES.sheet)
     clearFilters()
   }
 
@@ -243,6 +354,8 @@ function DashboardPage({ user, onLogout }) {
     setSummary(null)
     setSelectedSheet('')
     setSheetRows(null)
+    setAllSheetRows([])
+    setActiveView(VIEW_TYPES.sheet)
     clearFilters()
 
     const [sheetList, dashboardSummary] = await Promise.all([
@@ -254,8 +367,12 @@ function DashboardPage({ user, onLogout }) {
     setSummary(dashboardSummary)
     const firstSheet = sheetList[0]?.name ?? ''
     setSelectedSheet(firstSheet)
-    if (firstSheet) {
-      await loadRows(file.id, firstSheet)
+    if (sheetList.length > 0) {
+      const sheetResponses = await Promise.all(sheetList.map(sheet => getSheetRows(file.id, sheet.name)))
+      const everyRow = sheetResponses.flatMap(response => response.rows ?? [])
+      setAllSheetRows(everyRow)
+      const firstResponse = sheetResponses.find(response => response.sheetName === firstSheet)
+      setSheetRows(firstResponse ?? null)
     }
   }
 
@@ -267,6 +384,10 @@ function DashboardPage({ user, onLogout }) {
     try {
       const response = await getSheetRows(fileId, sheetName)
       setSheetRows(response)
+      setAllSheetRows(currentRows => {
+        const otherRows = currentRows.filter(row => row.sheetName !== sheetName)
+        return [...otherRows, ...(response.rows ?? [])]
+      })
     } catch (err) {
       setError(err.message || 'Unable to load sheet rows.')
     } finally {
@@ -299,28 +420,71 @@ function DashboardPage({ user, onLogout }) {
 
   function selectSheet(sheetName) {
     setSelectedSheet(sheetName)
+    setActiveView(VIEW_TYPES.sheet)
     if (selectedFileId) {
       loadRows(selectedFileId, sheetName)
     }
   }
 
   const rows = useMemo(() => sheetRows?.rows ?? [], [sheetRows])
+  const analysisRows = useMemo(() => (allSheetRows.length > 0 ? allSheetRows : rows), [allSheetRows, rows])
   const filterOptions = useMemo(() => ({
-    qaStatuses: uniqueValues(rows, 'qaStatus'),
-    devStatuses: uniqueValues(rows, 'devStatus'),
-    issueTypes: uniqueValues(rows, 'issueType'),
-    modules: uniqueValues(rows, 'module'),
-  }), [rows])
+    qaStatuses: uniqueValues(analysisRows, 'qaStatus'),
+    devStatuses: uniqueValues(analysisRows, 'devStatus'),
+    issueTypes: uniqueValues(analysisRows, 'issueType'),
+    modules: uniqueValues(analysisRows, 'module'),
+  }), [analysisRows])
 
-  const filteredRows = useMemo(() => {
-    return rows.filter(row => {
+  const applyFilters = useMemo(() => {
+    return row => {
       const qaMatch = qaFilters.length === 0 || qaFilters.includes(row.qaStatus)
       const devMatch = devFilters.length === 0 || devFilters.includes(row.devStatus)
       const issueMatch = issueFilters.length === 0 || issueFilters.includes(row.issueType)
       const moduleMatch = moduleFilters.length === 0 || moduleFilters.includes(row.module)
       return rowMatchesSearch(row, search) && qaMatch && devMatch && issueMatch && moduleMatch
+    }
+  }, [search, qaFilters, devFilters, issueFilters, moduleFilters])
+
+  const filteredRows = useMemo(() => {
+    return rows.filter(applyFilters)
+  }, [rows, applyFilters])
+
+  const filteredAnalysisRows = useMemo(() => {
+    return analysisRows.filter(applyFilters)
+  }, [analysisRows, applyFilters])
+
+  const moduleGroups = useMemo(() => {
+    return groupEntries(filteredAnalysisRows, row => row.module).map(([module, moduleRows]) => ({
+      module,
+      rows: moduleRows,
+      sheets: groupEntries(moduleRows, row => row.sheetName),
+    }))
+  }, [filteredAnalysisRows])
+
+  const duplicateKeys = useMemo(() => {
+    const counts = new Map()
+    analysisRows.forEach(row => {
+      const key = row.testCaseId || row.testCaseNo
+      if (key) counts.set(key, (counts.get(key) ?? 0) + 1)
     })
-  }, [rows, search, qaFilters, devFilters, issueFilters, moduleFilters])
+
+    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key))
+  }, [analysisRows])
+
+  const repeatedRows = useMemo(() => {
+    return filteredAnalysisRows.filter(row => isRepeatedRow(row, duplicateKeys))
+  }, [filteredAnalysisRows, duplicateKeys])
+
+  const postponedRows = useMemo(() => {
+    return filteredAnalysisRows.filter(isPostponedRow)
+  }, [filteredAnalysisRows])
+
+  const currentViewRows = useMemo(() => {
+    if (activeView === VIEW_TYPES.repeated) return repeatedRows
+    if (activeView === VIEW_TYPES.postponed) return postponedRows
+    if (activeView === VIEW_TYPES.module) return filteredAnalysisRows
+    return filteredRows
+  }, [activeView, filteredRows, filteredAnalysisRows, repeatedRows, postponedRows])
 
   const selectedSummary = summary?.sheets?.find(sheet => sheet.sheetName === selectedSheet)
   const qaCounts = summary?.qaStatusCounts ?? {}
@@ -466,10 +630,46 @@ function DashboardPage({ user, onLogout }) {
                 <section className="sheet-detail">
                   <div className="section-heading">
                     <div>
-                      <h2>{selectedSheet}</h2>
-                      <p>{selectedSummary?.module}</p>
+                      <h2>
+                        {activeView === VIEW_TYPES.sheet && selectedSheet}
+                        {activeView === VIEW_TYPES.module && 'Module-wise'}
+                        {activeView === VIEW_TYPES.repeated && 'Repeated Error/Modules'}
+                        {activeView === VIEW_TYPES.postponed && 'Postponed/Future Development'}
+                      </h2>
+                      <p>{activeView === VIEW_TYPES.sheet ? selectedSummary?.module : `${currentViewRows.length} matching rows`}</p>
                     </div>
-                    <span>{filteredRows.length} / {rows.length}</span>
+                    <span>{currentViewRows.length} / {activeView === VIEW_TYPES.sheet ? rows.length : analysisRows.length}</span>
+                  </div>
+
+                  <div className="view-tabs">
+                    <button
+                      type="button"
+                      className={activeView === VIEW_TYPES.sheet ? 'active' : ''}
+                      onClick={() => setActiveView(VIEW_TYPES.sheet)}
+                    >
+                      Sheet-wise
+                    </button>
+                    <button
+                      type="button"
+                      className={activeView === VIEW_TYPES.module ? 'active' : ''}
+                      onClick={() => setActiveView(VIEW_TYPES.module)}
+                    >
+                      Module-wise
+                    </button>
+                    <button
+                      type="button"
+                      className={activeView === VIEW_TYPES.repeated ? 'active' : ''}
+                      onClick={() => setActiveView(VIEW_TYPES.repeated)}
+                    >
+                      Repeated
+                    </button>
+                    <button
+                      type="button"
+                      className={activeView === VIEW_TYPES.postponed ? 'active' : ''}
+                      onClick={() => setActiveView(VIEW_TYPES.postponed)}
+                    >
+                      Postponed/Future
+                    </button>
                   </div>
 
                   <div className="search-row">
@@ -515,41 +715,58 @@ function DashboardPage({ user, onLogout }) {
 
                   {rowsLoading && <div className="notice compact">Loading sheet rows...</div>}
 
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>TC No.</th>
-                          <th>TC ID</th>
-                          <th>Module</th>
-                          <th>Description</th>
-                          <th>QA Status</th>
-                          <th>Dev. Status</th>
-                          <th>Issue Type</th>
-                          <th>Actual Result</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {filteredRows.map((row, index) => (
-                          <tr key={`${row.testCaseId}-${row.testCaseNo}-${index}`}>
-                            <td>{row.testCaseNo}</td>
-                            <td>{row.testCaseId}</td>
-                            <td>{row.module}</td>
-                            <td>{row.description}</td>
-                            <td><StatusPill label={row.qaStatus || 'Blank'} tone={statusTone(row.qaStatus || '')} /></td>
-                            <td><StatusPill label={row.devStatus || 'Blank'} tone={statusTone(row.devStatus || '')} /></td>
-                            <td>{row.issueType}</td>
-                            <td>{row.actualResult}</td>
-                          </tr>
-                        ))}
-                        {!rowsLoading && filteredRows.length === 0 && (
-                          <tr>
-                            <td colSpan="8" className="empty-cell">No rows match the selected search and filters.</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
+                  {activeView === VIEW_TYPES.sheet && (
+                    <RowTable
+                      rows={filteredRows}
+                      rowsLoading={rowsLoading}
+                      emptyMessage="No rows match the selected search and filters."
+                    />
+                  )}
+
+                  {activeView === VIEW_TYPES.module && (
+                    <div className="group-stack">
+                      {moduleGroups.map(group => (
+                        <section className="result-group" key={group.module}>
+                          <div className="group-heading">
+                            <h3>{group.module}</h3>
+                            <span>{group.rows.length} rows</span>
+                          </div>
+                          {group.sheets.map(([sheetName, sheetGroupRows]) => (
+                            <div className="sheet-group" key={`${group.module}-${sheetName}`}>
+                              <div className="sheet-group-heading">
+                                <strong>{sheetName}</strong>
+                                <span>{sheetGroupRows.length}</span>
+                              </div>
+                              <RowTable
+                                rows={sheetGroupRows}
+                                rowsLoading={rowsLoading}
+                                emptyMessage="No rows found for this module and sheet."
+                              />
+                            </div>
+                          ))}
+                        </section>
+                      ))}
+                      {!rowsLoading && moduleGroups.length === 0 && (
+                        <div className="notice compact">No module groups match the selected search and filters.</div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeView === VIEW_TYPES.repeated && (
+                    <RowTable
+                      rows={repeatedRows}
+                      rowsLoading={rowsLoading}
+                      emptyMessage="No repeated errors or modules match the selected search and filters."
+                    />
+                  )}
+
+                  {activeView === VIEW_TYPES.postponed && (
+                    <RowTable
+                      rows={postponedRows}
+                      rowsLoading={rowsLoading}
+                      emptyMessage="No postponed or future development rows match the selected search and filters."
+                    />
+                  )}
                 </section>
               </section>
             </>

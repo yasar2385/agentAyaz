@@ -20,6 +20,7 @@ public sealed class QaRow
     public string IssueType { get; set; } = string.Empty;
     public string QaStatus { get; set; } = string.Empty;
     public string DevStatus { get; set; } = string.Empty;
+    public List<QaRound> Rounds { get; set; } = [];
     public List<string> QaRemarks { get; set; } = [];
     public List<string> DevRemarks { get; set; } = [];
 }
