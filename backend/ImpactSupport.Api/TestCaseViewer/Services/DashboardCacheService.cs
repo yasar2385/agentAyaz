@@ -478,7 +478,7 @@ public sealed class DashboardCacheService : IDashboardCacheService
 
     private async Task RefreshMasterIndexAsync(QaDashboardFileCache fileCache, CancellationToken cancellationToken)
     {
-        var values = await _sheetsService.GetValuesAsync(fileCache.FileId, fileCache.FileName, cancellationToken);
+        var values = await _sheetsService.GetAllValuesAsync(fileCache.FileId, fileCache.FileName, cancellationToken);
         if (values.Count == 0)
         {
             return;

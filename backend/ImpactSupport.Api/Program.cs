@@ -34,6 +34,7 @@ builder.Services.AddSingleton<IQaTsvRowReader, QaTsvRowReader>();
 builder.Services.AddScoped<ITestCaseViewerAccessService, TestCaseViewerAccessService>();
 builder.Services.AddScoped<IUserAuthService, SqliteUserAuthService>();
 builder.Services.AddScoped<IDashboardCacheService, DashboardCacheService>();
+builder.Services.AddScoped<IManualImportService, ManualImportService>();
 builder.Services.AddHostedService<SelectedMongoUserImportService>();
 
 builder.Services.AddCors(options =>

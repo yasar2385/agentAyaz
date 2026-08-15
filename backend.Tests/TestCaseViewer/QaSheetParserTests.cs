@@ -78,16 +78,34 @@ public class QaSheetParserTests
             });
     }
 
+    [Fact]
+    public void ParseRows_TreatsFirstReturnedRowAsHeader()
+    {
+        var parser = new QaSheetParser();
+        var values = CreateValues(
+            ["Test Case No.", "Test Case ID", "Module/ Sub Module", "QA Status"],
+            ["1", "TC-1", "Billing", "Pass"]);
+
+        var row = Assert.Single(parser.ParseRows("file-1", "Sheet A", values));
+
+        Assert.Equal("1", row.TestCaseNo);
+        Assert.Equal("TC-1", row.TestCaseId);
+        Assert.Equal("Billing", row.Module);
+        Assert.Equal("Pass", row.QaStatus);
+    }
+
+    [Fact]
+    public void BuildQaRowsRange_StartsAtA22AndEscapesSheetNames()
+    {
+        var range = GoogleSheetsService.BuildQaRowsRange("Regression testing _CIRCCQO-2025-012757_QA_LIVE_10.08.26_After Live_DK");
+        var escapedRange = GoogleSheetsService.BuildQaRowsRange("Owner's QA");
+
+        Assert.Equal("'Regression testing _CIRCCQO-2025-012757_QA_LIVE_10.08.26_After Live_DK'!A22:Z", range);
+        Assert.Equal("'Owner''s QA'!A22:Z", escapedRange);
+    }
+
     private static IList<IList<object>> CreateValues(IList<object> header, IList<object> row)
     {
-        var values = new List<IList<object>>();
-        for (var i = 0; i < 22; i++)
-        {
-            values.Add([]);
-        }
-
-        values.Add(header);
-        values.Add(row);
-        return values;
+        return [header, row];
     }
 }

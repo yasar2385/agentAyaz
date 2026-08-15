@@ -12,6 +12,11 @@ import {
   loadSourceUrl,
   downloadToLocal,
   login,
+  uploadMasterImport,
+  uploadResultImport,
+  getImportErrors,
+  saveMasterSheetActions,
+  commitImportBatch,
 } from './services/testCaseViewerApi'
 
 const SESSION_KEY = 'impact-testcase-viewer-session'
@@ -30,6 +35,7 @@ const SOURCE_MODES = {
   workspaceCloud: 'workspaceCloud',
   local: 'local',
   hybrid: 'hybrid',
+  manual: 'manual',
 }
 
 function LoginPage({ onLogin }) {
@@ -290,6 +296,230 @@ function cacheFileToSummary(file) {
 
 function addCount(target, label, count = 0) {
   if (count > 0) target[label] = (target[label] ?? 0) + count
+}
+
+function ImportSummary({ batch }) {
+  if (!batch) return null
+  return (
+    <section className="stats-grid import-stats">
+      <StatCard label="Sheets/pages" value={batch.sheetsDetected ?? 0} hint="detected" />
+      <StatCard label="New" value={batch.newSheets ?? 0} hint="safe to import" />
+      <StatCard label="Existing" value={batch.existingSheets ?? 0} hint="needs action" />
+      <StatCard label="Rows ready" value={(batch.rowsAdded ?? 0) + (batch.rowsUpdated ?? 0)} hint="dry-run" />
+      <StatCard label="Errors" value={batch.rowsError ?? 0} hint={batch.status ?? 'DRY_RUN'} />
+    </section>
+  )
+}
+
+function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }) {
+  const [masterFile, setMasterFile] = useState(null)
+  const [resultFiles, setResultFiles] = useState([])
+  const [resultMode, setResultMode] = useState('single')
+  const [masterBatch, setMasterBatch] = useState(null)
+  const [resultBatch, setResultBatch] = useState(null)
+  const [errors, setErrors] = useState([])
+  const [ackErrors, setAckErrors] = useState(false)
+  const [message, setMessage] = useState('')
+
+  async function runMasterUpload(event) {
+    event.preventDefault()
+    if (!masterFile) return
+    await runImport(async () => {
+      const batch = await uploadMasterImport(masterFile, user)
+      setMasterBatch(batch)
+      setResultBatch(null)
+      setAckErrors(false)
+      setErrors(batch.rowsError ? await getImportErrors(batch.batchId, user) : [])
+      setMessage('Master upload dry-run is ready.')
+    })
+  }
+
+  async function runResultUpload(event) {
+    event.preventDefault()
+    if (resultFiles.length === 0) return
+    await runImport(async () => {
+      const batch = await uploadResultImport(resultFiles, resultMode, user)
+      setResultBatch(batch)
+      setMasterBatch(null)
+      setAckErrors(false)
+      setErrors(batch.rowsError ? await getImportErrors(batch.batchId, user) : [])
+      setMessage('Result upload dry-run is ready.')
+    })
+  }
+
+  async function runImport(action) {
+    onSetLoading(true)
+    onError('')
+    setMessage('')
+    try {
+      await action()
+    } catch (err) {
+      onError(err.message || 'Import failed.')
+    } finally {
+      onSetLoading(false)
+    }
+  }
+
+  async function updateSheetAction(sheetId, action) {
+    if (!masterBatch) return
+    const actions = masterBatch.sheets
+      .filter(sheet => sheet.conflictStatus === 'EXISTS')
+      .map(sheet => ({
+        sheetId: sheet.id,
+        action: sheet.id === sheetId ? action : sheet.selectedAction,
+      }))
+    await runImport(async () => {
+      const batch = await saveMasterSheetActions(masterBatch.batchId, actions, user)
+      setMasterBatch(batch)
+      setMessage('Sheet/page action saved.')
+    })
+  }
+
+  async function commitBatch(batch) {
+    if (!batch) return
+    await runImport(async () => {
+      const committed = await commitImportBatch(batch.batchId, user)
+      setMessage(`Batch ${committed.batchId} committed.`)
+      if (committed.uploadKind === 'master') setMasterBatch(committed)
+      if (committed.uploadKind === 'result') setResultBatch(committed)
+      await onCommitted(committed.uploadKind === 'result' ? REPORT_TYPES.regression : REPORT_TYPES.master)
+    })
+  }
+
+  const activeBatch = masterBatch || resultBatch
+  const hasErrors = (activeBatch?.rowsError ?? 0) > 0
+  const unresolvedMasterConflicts = (masterBatch?.sheets ?? [])
+    .filter(sheet => sheet.conflictStatus === 'EXISTS')
+    .some(sheet => !['OVERWRITE', 'SKIP'].includes(sheet.selectedAction))
+  const canCommitMaster = masterBatch && masterBatch.status !== 'COMMITTED' && !unresolvedMasterConflicts && (!hasErrors || ackErrors)
+  const canCommitResult = resultBatch && resultBatch.status !== 'COMMITTED' && (!hasErrors || ackErrors)
+
+  return (
+    <section className="manual-upload-panel">
+      <div className="upload-grid">
+        <form className="upload-card" onSubmit={runMasterUpload}>
+          <div>
+            <h2>Master Test Case Upload</h2>
+            <p>CSV/TSV with Sheet Name, Module/Sub Module, and Test Case ID columns.</p>
+          </div>
+          <input type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" onChange={event => setMasterFile(event.target.files?.[0] ?? null)} />
+          <button type="submit" disabled={loading || !masterFile}>Dry-run master upload</button>
+        </form>
+
+        <form className="upload-card" onSubmit={runResultUpload}>
+          <div>
+            <h2>Test Result Upload</h2>
+            <p>Upload one single result file or multiple regression result files.</p>
+          </div>
+          <div className="segmented compact">
+            <button type="button" className={resultMode === 'single' ? 'active' : ''} onClick={() => setResultMode('single')}>Single</button>
+            <button type="button" className={resultMode === 'regression' ? 'active' : ''} onClick={() => setResultMode('regression')}>Regression</button>
+          </div>
+          <input
+            type="file"
+            multiple={resultMode === 'regression'}
+            accept=".csv,.tsv,text/csv,text/tab-separated-values"
+            onChange={event => setResultFiles([...(event.target.files ?? [])])}
+          />
+          <button type="submit" disabled={loading || resultFiles.length === 0}>Dry-run result upload</button>
+        </form>
+      </div>
+
+      {message && <section className="notice compact">{message}</section>}
+
+      <ImportSummary batch={activeBatch} />
+
+      {masterBatch && (
+        <section className="upload-review">
+          <div className="section-heading">
+            <h2>Sheet/Page Conflict Review</h2>
+            <span>{masterBatch.status}</span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Sheet/Page</th>
+                  <th>Module</th>
+                  <th>Rows</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {masterBatch.sheets.map(sheet => (
+                  <tr key={sheet.id}>
+                    <td>{sheet.sheetName}</td>
+                    <td>{sheet.moduleName}</td>
+                    <td>{sheet.rowCount}</td>
+                    <td><StatusPill label={sheet.conflictStatus} tone={sheet.conflictStatus === 'EXISTS' ? 'warn' : 'good'} /></td>
+                    <td>
+                      {sheet.conflictStatus === 'EXISTS' ? (
+                        <select value={sheet.selectedAction} onChange={event => updateSheetAction(sheet.id, event.target.value)} disabled={loading || masterBatch.status === 'COMMITTED'}>
+                          <option value="">Choose</option>
+                          <option value="OVERWRITE">Overwrite</option>
+                          <option value="SKIP">Skip</option>
+                        </select>
+                      ) : (
+                        <StatusPill label={sheet.selectedAction || 'Import'} tone="good" />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" onClick={() => commitBatch(masterBatch)} disabled={loading || !canCommitMaster}>
+            Commit master import
+          </button>
+        </section>
+      )}
+
+      {resultBatch && (
+        <section className="upload-review">
+          <div className="section-heading">
+            <h2>Result Dry-run</h2>
+            <span>{resultBatch.status}</span>
+          </div>
+          <button type="button" onClick={() => commitBatch(resultBatch)} disabled={loading || !canCommitResult}>
+            Commit result import
+          </button>
+        </section>
+      )}
+
+      {errors.length > 0 && (
+        <section className="upload-review">
+          <div className="section-heading">
+            <h2>Upload Errors</h2>
+            <label className="ack-field">
+              <input type="checkbox" checked={ackErrors} onChange={event => setAckErrors(event.target.checked)} />
+              Acknowledge
+            </label>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Row</th>
+                  <th>Value</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {errors.map(error => (
+                  <tr key={error.id}>
+                    <td>{error.rowNumber}</td>
+                    <td>{error.rawValue}</td>
+                    <td>{error.errorMessage}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </section>
+  )
 }
 
 function rowMatchesSearch(row, search) {
@@ -772,9 +1002,26 @@ function DashboardPage({ user, onLogout }) {
         >
           Hybrid
         </button>
+        <button
+          type="button"
+          className={sourceMode === SOURCE_MODES.manual ? 'active' : ''}
+          onClick={() => changeSourceMode(SOURCE_MODES.manual)}
+        >
+          Manual Upload
+        </button>
       </section>
 
-      {!dashboardLoaded && !summary && !loading && !error && (
+      {sourceMode === SOURCE_MODES.manual && (
+        <ManualUploadPanel
+          user={user}
+          loading={loading}
+          onSetLoading={setLoading}
+          onError={setError}
+          onCommitted={loadDashboard}
+        />
+      )}
+
+      {sourceMode !== SOURCE_MODES.manual && !dashboardLoaded && !summary && !loading && !error && (
         <section className="empty-state">
           <h2>Connect the dashboard</h2>
           <p>
@@ -789,7 +1036,7 @@ function DashboardPage({ user, onLogout }) {
       {loading && <section className="notice">Loading data from ImpactSupport.Api...</section>}
       {error && <section className="notice error">{error}</section>}
 
-      {(dashboardLoaded || summary || knownFile || regressionFiles.length > 0) && (
+      {sourceMode !== SOURCE_MODES.manual && (dashboardLoaded || summary || knownFile || regressionFiles.length > 0) && (
         <>
           <section className="selector-panel">
             <div className="segmented">

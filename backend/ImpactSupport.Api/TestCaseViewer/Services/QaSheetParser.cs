@@ -4,7 +4,7 @@ namespace ImpactSupport.Api.TestCaseViewer.Services;
 
 public sealed class QaSheetParser : IQaSheetParser
 {
-    private const int HeaderRowIndex = 22;
+    private const int HeaderRowIndex = 0;
 
     public IReadOnlyList<QaRow> ParseRows(string fileId, string sheetName, IList<IList<object>> values)
     {

@@ -302,15 +302,15 @@ namespace ImpactSupport.Api.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("SheetLink")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<int?>("SheetGid")
                         .HasColumnType("INTEGER");
 
                     b.Property<int?>("SheetIndex")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("SheetLink")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("SheetName")
                         .IsRequired()
@@ -338,6 +338,166 @@ namespace ImpactSupport.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("QaDashboardSheetCaches");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatch", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("CommittedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ExistingSheets")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("NewSheets")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ResultMode")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RowsAdded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RowsError")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RowsSkipped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RowsUpdated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SheetsDetected")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UploadKind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("UploadedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UploadedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UploadKind", "Status");
+
+                    b.ToTable("QaImportBatches");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatchError", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ErrorMessage")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ImportBatchId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RawValue")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RowNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ImportBatchId");
+
+                    b.ToTable("QaImportBatchErrors");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatchRow", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ImportBatchId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ImportBatchSheetId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RowJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SourceRowNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TestCaseId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ImportBatchSheetId");
+
+                    b.HasIndex("ImportBatchId", "TestCaseId")
+                        .IsUnique();
+
+                    b.ToTable("QaImportBatchRows");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatchSheet", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ConflictStatus")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ImportBatchId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModuleName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedSheetName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RowCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SelectedAction")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SheetName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ImportBatchId", "NormalizedSheetName")
+                        .IsUnique();
+
+                    b.ToTable("QaImportBatchSheets");
                 });
 
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestCaseViewerUser", b =>
@@ -417,6 +577,47 @@ namespace ImpactSupport.Api.Migrations
                     b.Navigation("FileCache");
                 });
 
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatchError", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatch", "ImportBatch")
+                        .WithMany("Errors")
+                        .HasForeignKey("ImportBatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ImportBatch");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatchRow", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatch", "ImportBatch")
+                        .WithMany("Rows")
+                        .HasForeignKey("ImportBatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatchSheet", "ImportBatchSheet")
+                        .WithMany("Rows")
+                        .HasForeignKey("ImportBatchSheetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ImportBatch");
+
+                    b.Navigation("ImportBatchSheet");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatchSheet", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatch", "ImportBatch")
+                        .WithMany("Sheets")
+                        .HasForeignKey("ImportBatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("ImportBatch");
+                });
+
             modelBuilder.Entity("ImpactSupport.Api.Support.Data.SupportSession", b =>
                 {
                     b.Navigation("Messages");
@@ -425,6 +626,20 @@ namespace ImpactSupport.Api.Migrations
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaDashboardFileCache", b =>
                 {
                     b.Navigation("Sheets");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatch", b =>
+                {
+                    b.Navigation("Errors");
+
+                    b.Navigation("Rows");
+
+                    b.Navigation("Sheets");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatchSheet", b =>
+                {
+                    b.Navigation("Rows");
                 });
 #pragma warning restore 612, 618
         }

@@ -1,12 +1,14 @@
 using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
 using Google.Apis.Sheets.v4.Data;
+using Google;
 using ImpactSupport.Api.TestCaseViewer.Models;
 
 namespace ImpactSupport.Api.TestCaseViewer.Services;
 
 public sealed class GoogleSheetsService : IGoogleSheetsService
 {
+    private const int QaHeaderSpreadsheetRow = 22;
     private readonly SheetsService _sheetsService;
     private readonly IQaSheetParser _parser;
 
@@ -58,9 +60,15 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
         string sheetName,
         CancellationToken cancellationToken = default)
     {
-        var request = _sheetsService.Spreadsheets.Values.Get(fileId, BuildRange(sheetName));
-        var response = await request.ExecuteAsync(cancellationToken);
-        return response.Values ?? [];
+        return await GetValuesForRangeAsync(fileId, sheetName, BuildQaRowsRange(sheetName), cancellationToken);
+    }
+
+    public async Task<IList<IList<object>>> GetAllValuesAsync(
+        string fileId,
+        string sheetName,
+        CancellationToken cancellationToken = default)
+    {
+        return await GetValuesForRangeAsync(fileId, sheetName, BuildSheetMetadataRange(sheetName), cancellationToken);
     }
 
     public async Task UpdateFieldsAsync(
@@ -75,12 +83,12 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
         }
 
         var values = await GetValuesAsync(fileId, sheetName, cancellationToken);
-        if (values.Count <= 22)
+        if (values.Count == 0)
         {
             return;
         }
 
-        var headers = values[22].Select(CellText).ToList();
+        var headers = values[0].Select(CellText).ToList();
         var map = BuildHeaderMap(headers);
         var updates = new List<ValueRange>();
 
@@ -99,7 +107,7 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
 
             updates.Add(new ValueRange
             {
-                Range = $"'{EscapeSheetName(sheetName)}'!{ColumnName(columnIndex + 1)}{rowIndex + 1}",
+                Range = $"'{EscapeSheetName(sheetName)}'!{ColumnName(columnIndex + 1)}{QaHeaderSpreadsheetRow + rowIndex}",
                 Values = [[edit.Value]]
             });
         }
@@ -134,7 +142,7 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
         }
 
         var request = _sheetsService.Spreadsheets.Values.BatchGet(fileId);
-        request.Ranges = sheets.Select(sheet => BuildRange(sheet.Name)).ToList();
+        request.Ranges = sheets.Select(sheet => BuildQaRowsRange(sheet.Name)).ToList();
         var response = await request.ExecuteAsync(cancellationToken);
         var valueRanges = response.ValueRanges ?? [];
 
@@ -166,6 +174,24 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
         return _parser.ParseRows(fileId, sheetName, await GetValuesAsync(fileId, sheetName, cancellationToken));
     }
 
+    private async Task<IList<IList<object>>> GetValuesForRangeAsync(
+        string fileId,
+        string sheetName,
+        string range,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var request = _sheetsService.Spreadsheets.Values.Get(fileId, range);
+            var response = await request.ExecuteAsync(cancellationToken);
+            return response.Values ?? [];
+        }
+        catch (GoogleApiException ex) when (ex.Message.Contains("Unable to parse range", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Unable to parse range '{range}' for sheet '{sheetName}'.", ex);
+        }
+    }
+
     private static IReadOnlyList<string> DistinctStatuses(IEnumerable<string> statuses)
     {
         return statuses
@@ -193,7 +219,9 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
 
     private static string EscapeSheetName(string sheetName) => sheetName.Replace("'", "''");
 
-    private static string BuildRange(string sheetName) => $"'{EscapeSheetName(sheetName)}'!A:Z";
+    public static string BuildQaRowsRange(string sheetName) => $"'{EscapeSheetName(sheetName)}'!A22:Z";
+
+    public static string BuildSheetMetadataRange(string sheetName) => $"'{EscapeSheetName(sheetName)}'!A:Z";
 
     private static Dictionary<string, int> BuildHeaderMap(IReadOnlyList<string> header)
     {
@@ -211,7 +239,7 @@ public sealed class GoogleSheetsService : IGoogleSheetsService
 
     private static int FindRowIndex(IList<IList<object>> values, IReadOnlyDictionary<string, int> map, QaFieldEdit edit)
     {
-        for (var i = 23; i < values.Count; i++)
+        for (var i = 1; i < values.Count; i++)
         {
             var row = values[i];
             var testCaseId = Get(row, map, "Test Case ID");

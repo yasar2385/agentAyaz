@@ -91,9 +91,9 @@ button:disabled {
   border-radius: 8px;
   display: grid;
   gap: 4px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0 auto 18px;
-  max-width: 560px;
+  max-width: 760px;
   padding: 4px;
 }
 
@@ -236,6 +236,8 @@ button:disabled {
 .source-grid article,
 .stat-card,
 .status-overview,
+.upload-card,
+.upload-review,
 .workbench {
   background: #fff;
   border: 1px solid #dfe7ea;
@@ -260,6 +262,75 @@ button:disabled {
 .stats-grid {
   display: grid;
   gap: 14px;
+}
+
+.manual-upload-panel {
+  display: grid;
+  gap: 18px;
+  margin: 0 auto 18px;
+  max-width: 1440px;
+}
+
+.upload-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.upload-card {
+  align-content: start;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.upload-card h2 {
+  font-size: 18px;
+  margin: 0 0 6px;
+}
+
+.upload-card p {
+  color: #657782;
+  margin: 0;
+}
+
+.upload-card input[type="file"] {
+  border: 1px dashed #aebdc5;
+  border-radius: 8px;
+  min-height: 42px;
+  padding: 10px;
+}
+
+.upload-review {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.upload-review select {
+  background: #fff;
+  border: 1px solid #ccd8dd;
+  border-radius: 8px;
+  color: #172026;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.segmented.compact {
+  max-width: 260px;
+}
+
+.import-stats {
+  margin-bottom: 0;
+}
+
+.ack-field {
+  align-items: center;
+  color: #41515b;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 800;
+  gap: 8px;
 }
 
 .source-grid {
@@ -519,8 +590,10 @@ th {
   .stats-grid,
   .status-overview,
   .workbench,
+  .upload-grid,
   .filters,
   .search-row,
+  .mode-tabs,
   .view-tabs {
     grid-template-columns: 1fr;
   }

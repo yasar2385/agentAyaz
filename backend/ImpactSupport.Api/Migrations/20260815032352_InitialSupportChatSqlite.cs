@@ -22,8 +22,12 @@ namespace ImpactSupport.Api.Migrations
                     ReportType = table.Column<string>(type: "TEXT", nullable: false),
                     LastScannedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
                     DriveModifiedTime = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    LastDriveCheckedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    LastMetadataSyncedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
                     LastLocalSyncAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
                     LastGoogleUpdateAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    SourceUrl = table.Column<string>(type: "TEXT", nullable: false),
+                    FolderUrl = table.Column<string>(type: "TEXT", nullable: false),
                     ScanStatus = table.Column<string>(type: "TEXT", nullable: false),
                     ScanError = table.Column<string>(type: "TEXT", nullable: false),
                     LocalTsvPath = table.Column<string>(type: "TEXT", nullable: false),
@@ -34,6 +38,32 @@ namespace ImpactSupport.Api.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_QaDashboardFileCaches", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "QaImportBatches",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    UploadKind = table.Column<string>(type: "TEXT", nullable: false),
+                    ResultMode = table.Column<string>(type: "TEXT", nullable: false),
+                    FileName = table.Column<string>(type: "TEXT", nullable: false),
+                    UploadedBy = table.Column<string>(type: "TEXT", nullable: false),
+                    Status = table.Column<string>(type: "TEXT", nullable: false),
+                    RowsAdded = table.Column<int>(type: "INTEGER", nullable: false),
+                    RowsUpdated = table.Column<int>(type: "INTEGER", nullable: false),
+                    RowsSkipped = table.Column<int>(type: "INTEGER", nullable: false),
+                    RowsError = table.Column<int>(type: "INTEGER", nullable: false),
+                    SheetsDetected = table.Column<int>(type: "INTEGER", nullable: false),
+                    NewSheets = table.Column<int>(type: "INTEGER", nullable: false),
+                    ExistingSheets = table.Column<int>(type: "INTEGER", nullable: false),
+                    UploadedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                    CommittedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_QaImportBatches", x => x.Id);
                 });
 
             migrationBuilder.CreateTable(
@@ -95,6 +125,8 @@ namespace ImpactSupport.Api.Migrations
                     FileCacheId = table.Column<int>(type: "INTEGER", nullable: false),
                     FileId = table.Column<string>(type: "TEXT", nullable: false),
                     SheetName = table.Column<string>(type: "TEXT", nullable: false),
+                    SheetIndex = table.Column<int>(type: "INTEGER", nullable: true),
+                    SheetGid = table.Column<int>(type: "INTEGER", nullable: true),
                     Module = table.Column<string>(type: "TEXT", nullable: false),
                     TotalTestCases = table.Column<int>(type: "INTEGER", nullable: false),
                     PassCount = table.Column<int>(type: "INTEGER", nullable: false),
@@ -115,6 +147,7 @@ namespace ImpactSupport.Api.Migrations
                     RowsJson = table.Column<string>(type: "TEXT", nullable: false),
                     LastRefreshedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
                     DriveModifiedTime = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    LastMetadataSyncedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
                     LastLocalSyncAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
                     LastGoogleUpdateAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
                     LocalTsvPath = table.Column<string>(type: "TEXT", nullable: false),
@@ -131,6 +164,53 @@ namespace ImpactSupport.Api.Migrations
                         name: "FK_QaDashboardSheetCaches_QaDashboardFileCaches_FileCacheId",
                         column: x => x.FileCacheId,
                         principalTable: "QaDashboardFileCaches",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "QaImportBatchErrors",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    ImportBatchId = table.Column<int>(type: "INTEGER", nullable: false),
+                    RowNumber = table.Column<int>(type: "INTEGER", nullable: false),
+                    RawValue = table.Column<string>(type: "TEXT", nullable: false),
+                    ErrorMessage = table.Column<string>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_QaImportBatchErrors", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_QaImportBatchErrors_QaImportBatches_ImportBatchId",
+                        column: x => x.ImportBatchId,
+                        principalTable: "QaImportBatches",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "QaImportBatchSheets",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    ImportBatchId = table.Column<int>(type: "INTEGER", nullable: false),
+                    SheetName = table.Column<string>(type: "TEXT", nullable: false),
+                    NormalizedSheetName = table.Column<string>(type: "TEXT", nullable: false),
+                    ModuleName = table.Column<string>(type: "TEXT", nullable: false),
+                    RowCount = table.Column<int>(type: "INTEGER", nullable: false),
+                    ConflictStatus = table.Column<string>(type: "TEXT", nullable: false),
+                    SelectedAction = table.Column<string>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_QaImportBatchSheets", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_QaImportBatchSheets_QaImportBatches_ImportBatchId",
+                        column: x => x.ImportBatchId,
+                        principalTable: "QaImportBatches",
                         principalColumn: "Id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -161,6 +241,35 @@ namespace ImpactSupport.Api.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "QaImportBatchRows",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    ImportBatchId = table.Column<int>(type: "INTEGER", nullable: false),
+                    ImportBatchSheetId = table.Column<int>(type: "INTEGER", nullable: false),
+                    SourceRowNumber = table.Column<int>(type: "INTEGER", nullable: false),
+                    TestCaseId = table.Column<string>(type: "TEXT", nullable: false),
+                    RowJson = table.Column<string>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_QaImportBatchRows", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_QaImportBatchRows_QaImportBatchSheets_ImportBatchSheetId",
+                        column: x => x.ImportBatchSheetId,
+                        principalTable: "QaImportBatchSheets",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_QaImportBatchRows_QaImportBatches_ImportBatchId",
+                        column: x => x.ImportBatchId,
+                        principalTable: "QaImportBatches",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_QaDashboardFileCaches_ReportType_FileId",
                 table: "QaDashboardFileCaches",
@@ -176,6 +285,33 @@ namespace ImpactSupport.Api.Migrations
                 name: "IX_QaDashboardSheetCaches_FileId_SheetName",
                 table: "QaDashboardSheetCaches",
                 columns: new[] { "FileId", "SheetName" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_QaImportBatchErrors_ImportBatchId",
+                table: "QaImportBatchErrors",
+                column: "ImportBatchId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_QaImportBatches_UploadKind_Status",
+                table: "QaImportBatches",
+                columns: new[] { "UploadKind", "Status" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_QaImportBatchRows_ImportBatchId_TestCaseId",
+                table: "QaImportBatchRows",
+                columns: new[] { "ImportBatchId", "TestCaseId" },
+                unique: true);
+
+            migrationBuilder.CreateIndex(
+                name: "IX_QaImportBatchRows_ImportBatchSheetId",
+                table: "QaImportBatchRows",
+                column: "ImportBatchSheetId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_QaImportBatchSheets_ImportBatchId_NormalizedSheetName",
+                table: "QaImportBatchSheets",
+                columns: new[] { "ImportBatchId", "NormalizedSheetName" },
                 unique: true);
 
             migrationBuilder.CreateIndex(
@@ -226,6 +362,12 @@ namespace ImpactSupport.Api.Migrations
                 name: "QaDashboardSheetCaches");
 
             migrationBuilder.DropTable(
+                name: "QaImportBatchErrors");
+
+            migrationBuilder.DropTable(
+                name: "QaImportBatchRows");
+
+            migrationBuilder.DropTable(
                 name: "SupportMessages");
 
             migrationBuilder.DropTable(
@@ -235,7 +377,13 @@ namespace ImpactSupport.Api.Migrations
                 name: "QaDashboardFileCaches");
 
             migrationBuilder.DropTable(
+                name: "QaImportBatchSheets");
+
+            migrationBuilder.DropTable(
                 name: "SupportSessions");
+
+            migrationBuilder.DropTable(
+                name: "QaImportBatches");
         }
     }
 }

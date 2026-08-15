@@ -104,6 +104,40 @@ export async function downloadToLocal(source, reportType = 'master', user = null
   );
 }
 
+export async function uploadMasterImport(file, user = null) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return postForm('/api/testcaseviewer/import/master/upload', formData, 'Failed to upload master test cases', user);
+}
+
+export async function uploadResultImport(files, resultMode = 'single', user = null) {
+  const formData = new FormData();
+  files.forEach(file => formData.append('files', file));
+  formData.append('resultMode', resultMode);
+  return postForm('/api/testcaseviewer/import/results/upload', formData, 'Failed to upload test results', user);
+}
+
+export async function getImportBatch(batchId, user = null) {
+  return getJson(`/api/testcaseviewer/import/${encodeURIComponent(batchId)}`, 'Failed to fetch import batch', user);
+}
+
+export async function getImportErrors(batchId, user = null) {
+  return getJson(`/api/testcaseviewer/import/${encodeURIComponent(batchId)}/errors`, 'Failed to fetch import errors', user);
+}
+
+export async function saveMasterSheetActions(batchId, actions, user = null) {
+  return postJson(
+    `/api/testcaseviewer/import/master/${encodeURIComponent(batchId)}/sheet-actions`,
+    { actions },
+    'Failed to save sheet actions',
+    user,
+  );
+}
+
+export async function commitImportBatch(batchId, user = null) {
+  return postJson(`/api/testcaseviewer/import/${encodeURIComponent(batchId)}/commit`, {}, 'Failed to commit import', user);
+}
+
 export async function getSheetRows(fileId, sheetName) {
   return getJson(
     `/api/testcaseviewer/files/${encodeURIComponent(fileId)}/sheets/${encodeURIComponent(sheetName)}/rows`,
@@ -125,6 +159,19 @@ async function postJson(path, payload, fallbackMessage, user = null) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders(user) },
     body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(readErrorMessage(text) || fallbackMessage);
+  }
+  return res.json();
+}
+
+async function postForm(path, formData, fallbackMessage, user = null) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: authHeaders(user),
+    body: formData,
   });
   if (!res.ok) {
     const text = await res.text();
