@@ -23,6 +23,7 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection("Google"));
 builder.Services.Configure<TestCaseViewerOptions>(builder.Configuration.GetSection("TestCaseViewer"));
+builder.Services.Configure<PlaywrightOptions>(builder.Configuration.GetSection("TestCaseViewer:Playwright"));
 builder.Services.Configure<MongoAuthOptions>(builder.Configuration.GetSection("MongoAuth"));
 builder.Services.AddSingleton<IGoogleCredentialProvider, GoogleCredentialProvider>();
 builder.Services.AddSingleton<IGoogleDriveFileLister, GoogleDriveFileLister>();
@@ -35,6 +36,8 @@ builder.Services.AddScoped<ITestCaseViewerAccessService, TestCaseViewerAccessSer
 builder.Services.AddScoped<IUserAuthService, SqliteUserAuthService>();
 builder.Services.AddScoped<IDashboardCacheService, DashboardCacheService>();
 builder.Services.AddScoped<IManualImportService, ManualImportService>();
+builder.Services.AddScoped<PlaywrightCommandBuilder>();
+builder.Services.AddScoped<IPlaywrightRunService, PlaywrightRunService>();
 builder.Services.AddHostedService<SelectedMongoUserImportService>();
 
 builder.Services.AddCors(options =>

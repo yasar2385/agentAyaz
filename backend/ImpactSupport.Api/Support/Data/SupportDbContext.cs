@@ -20,6 +20,13 @@ public sealed class SupportDbContext : DbContext
     public DbSet<QaImportBatchSheet> QaImportBatchSheets => Set<QaImportBatchSheet>();
     public DbSet<QaImportBatchRow> QaImportBatchRows => Set<QaImportBatchRow>();
     public DbSet<QaImportBatchError> QaImportBatchErrors => Set<QaImportBatchError>();
+    public DbSet<TestRunConfig> TestRunConfigs => Set<TestRunConfig>();
+    public DbSet<TestRunConfigTarget> TestRunConfigTargets => Set<TestRunConfigTarget>();
+    public DbSet<TestRunConfigTestingType> TestRunConfigTestingTypes => Set<TestRunConfigTestingType>();
+    public DbSet<TestRunConfigFlag> TestRunConfigFlags => Set<TestRunConfigFlag>();
+    public DbSet<TestRunExecution> TestRunExecutions => Set<TestRunExecution>();
+    public DbSet<TestRunConfigWorkflowContext> TestRunConfigWorkflowContexts => Set<TestRunConfigWorkflowContext>();
+    public DbSet<TestRunProgress> TestRunProgresses => Set<TestRunProgress>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -173,6 +180,106 @@ public sealed class SupportDbContext : DbContext
                 .WithMany(x => x.Errors)
                 .HasForeignKey(x => x.ImportBatchId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TestRunConfig>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.TestingName).IsUnique();
+            entity.Property(x => x.TestingName).IsRequired();
+            entity.Property(x => x.Description).IsRequired();
+            entity.Property(x => x.CreatedBy).IsRequired();
+        });
+
+        modelBuilder.Entity<TestRunConfigTarget>(entity =>
+        {
+            entity.HasKey(x => new { x.ConfigId, x.ModuleName });
+            entity.Property(x => x.ModuleName).IsRequired();
+            entity
+                .HasOne(x => x.Config)
+                .WithMany(x => x.Targets)
+                .HasForeignKey(x => x.ConfigId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TestRunConfigTestingType>(entity =>
+        {
+            entity.HasKey(x => new { x.ConfigId, x.Value });
+            entity.Property(x => x.Value).IsRequired();
+            entity
+                .HasOne(x => x.Config)
+                .WithMany(x => x.TestingTypes)
+                .HasForeignKey(x => x.ConfigId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TestRunConfigFlag>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.ConfigId, x.FlagKey }).IsUnique();
+            entity.Property(x => x.FlagKey).IsRequired();
+            entity.Property(x => x.FlagValue).IsRequired();
+            entity
+                .HasOne(x => x.Config)
+                .WithMany(x => x.Flags)
+                .HasForeignKey(x => x.ConfigId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TestRunExecution>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.ConfigId, x.Status });
+            entity.Property(x => x.TriggeredBy).IsRequired();
+            entity.Property(x => x.Status).IsRequired();
+            entity.Property(x => x.PlaywrightCommand).IsRequired();
+            entity.Property(x => x.PlaywrightTestsRef).IsRequired();
+            entity.Property(x => x.ReportPath).IsRequired();
+            entity.Property(x => x.RunKind).IsRequired();
+            entity.Property(x => x.ModuleName).IsRequired();
+            entity.Property(x => x.TestCaseId).IsRequired();
+            entity.Property(x => x.MantisTicket).IsRequired();
+            entity.Property(x => x.FailureSummary).IsRequired();
+            entity
+                .HasOne(x => x.Config)
+                .WithMany(x => x.Executions)
+                .HasForeignKey(x => x.ConfigId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TestRunConfigWorkflowContext>(entity =>
+        {
+            entity.HasKey(x => x.ConfigId);
+            entity.Property(x => x.Client).IsRequired();
+            entity.Property(x => x.ContentType).IsRequired();
+            entity.Property(x => x.Domain).IsRequired();
+            entity.Property(x => x.RoleWorkflow).IsRequired();
+            entity.Property(x => x.TestingUrl).IsRequired();
+            entity.Property(x => x.MantisTicket).IsRequired();
+            entity.Property(x => x.RefStyle).IsRequired();
+            entity
+                .HasOne(x => x.Config)
+                .WithOne(x => x.WorkflowContext)
+                .HasForeignKey<TestRunConfigWorkflowContext>(x => x.ConfigId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TestRunProgress>(entity =>
+        {
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.ConfigId, x.UserId }).IsUnique();
+            entity.Property(x => x.UserId).IsRequired();
+            entity.Property(x => x.LastModuleName).IsRequired();
+            entity
+                .HasOne(x => x.Config)
+                .WithMany()
+                .HasForeignKey(x => x.ConfigId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity
+                .HasOne(x => x.LastExecution)
+                .WithMany()
+                .HasForeignKey(x => x.LastExecutionId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

@@ -89,6 +89,39 @@ public sealed class ManualImportServiceTests
         Assert.Equal(1, cached.PassCount);
     }
 
+    [Fact]
+    public async Task UploadMasterAsync_HandlesQuotedMultilineTsvAndUsesFileNameWhenSheetNameIsDash()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+        var content = string.Join('\n',
+            "Sheet Name\tTest Case ID\tModule/ Sub Module\tPreconditions\tType of testing\tTest Case Description\tQA Status\tDev. Status\tQA Remarks\tDev. Remarks\tQA Remarks",
+            "-\tTC_CS_001\tContact Support\tAll user\tTomcat_Regression\t\"Line one\nLine two\"\t\t\tQA1\tDev1\tIgnored fifth");
+
+        var batch = await service.UploadMasterAsync(File("Sample_Regression testing_Contact Support.tsv", content), null);
+
+        Assert.Equal(1, batch.SheetsDetected);
+        var sheet = Assert.Single(batch.Sheets);
+        Assert.Equal("Sample_Regression testing_Contact Support", sheet.SheetName);
+        Assert.Equal("Contact Support", sheet.ModuleName);
+        Assert.Equal(0, batch.RowsError);
+    }
+
+    [Fact]
+    public async Task UploadMasterAsync_ReportsUnknownPreconditionsInsteadOfWildcard()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+
+        var batch = await service.UploadMasterAsync(File("master.tsv", Tsv(
+            ["Sheet Name", "Test Case ID", "Module/Sub Module", "Preconditions"],
+            ["Contact Support", "TC_CS_001", "Contact Support", "Unexpected access group"])), null);
+
+        Assert.Equal(1, batch.RowsError);
+        var error = await db.QaImportBatchErrors.SingleAsync();
+        Assert.Contains("Unrecognized Preconditions", error.ErrorMessage);
+    }
+
     private static SupportDbContext CreateDbContext()
     {
         var connection = new SqliteConnection("DataSource=:memory:");

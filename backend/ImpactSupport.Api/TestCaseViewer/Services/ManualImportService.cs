@@ -4,6 +4,7 @@ using ImpactSupport.Api.Support.Data;
 using ImpactSupport.Api.TestCaseViewer.Data;
 using ImpactSupport.Api.TestCaseViewer.Models;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.VisualBasic.FileIO;
 
 namespace ImpactSupport.Api.TestCaseViewer.Services;
 
@@ -165,9 +166,7 @@ public sealed class ManualImportService : IManualImportService
 
         foreach (var file in files)
         {
-            using var reader = new StreamReader(file.OpenReadStream(), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-            var text = await reader.ReadToEndAsync(cancellationToken);
-            var records = ParseDelimited(text, DetectDelimiter(file.FileName, text));
+            var records = ParseDelimited(file.OpenReadStream(), DetectDelimiter(file.FileName));
             if (records.Count == 0) continue;
 
             var headerIndex = FindHeaderRow(records);
@@ -266,6 +265,7 @@ public sealed class ManualImportService : IManualImportService
     {
         var sheetName = Get(record, map, "Sheet Name");
         if (string.IsNullOrWhiteSpace(sheetName)) sheetName = Get(record, map, "SheetName");
+        if (sheetName.Trim() == "-") sheetName = string.Empty;
         if (string.IsNullOrWhiteSpace(sheetName)) sheetName = Path.GetFileNameWithoutExtension(fileName);
 
         return new QaRow
@@ -288,8 +288,8 @@ public sealed class ManualImportService : IManualImportService
             IssueType = First(record, map, "Issue Type", "IssueType"),
             QaStatus = First(record, map, "QA Status", "QAStatus"),
             DevStatus = First(record, map, "Dev. Status", "DevStatus"),
-            QaRemarks = GetRepeated(record, map, "QA Remarks", "QARemarks"),
-            DevRemarks = GetRepeated(record, map, "Dev. Remarks", "DevRemarks"),
+            QaRemarks = GetRepeated(record, map, 4, "QA Remarks", "QARemarks"),
+            DevRemarks = GetRepeated(record, map, 4, "Dev. Remarks", "DevRemarks"),
             Rounds = BuildRounds(record, map)
         };
     }
@@ -301,6 +301,7 @@ public sealed class ManualImportService : IManualImportService
         if (string.IsNullOrWhiteSpace(row.SheetName)) errors.Add("Sheet Name is required.");
         if (string.IsNullOrWhiteSpace(row.Module)) errors.Add("Module/Sub Module is required.");
         if (!string.IsNullOrWhiteSpace(row.TestCaseId) && row.TestCaseId.Length < 3) errors.Add("Test Case ID is malformed.");
+        if (!PreconditionIsRecognized(row.Preconditions)) errors.Add($"Unrecognized Preconditions value: '{row.Preconditions}'");
         return errors;
     }
 
@@ -401,62 +402,24 @@ public sealed class ManualImportService : IManualImportService
         };
     }
 
-    private static List<List<string>> ParseDelimited(string text, char delimiter)
+    private static List<List<string>> ParseDelimited(Stream stream, string delimiter)
     {
         var rows = new List<List<string>>();
-        var row = new List<string>();
-        var cell = new StringBuilder();
-        var inQuotes = false;
-
-        for (var i = 0; i < text.Length; i++)
+        using var parser = new TextFieldParser(stream, Encoding.UTF8, detectEncoding: true);
+        parser.TextFieldType = FieldType.Delimited;
+        parser.SetDelimiters(delimiter);
+        parser.HasFieldsEnclosedInQuotes = true;
+        while (!parser.EndOfData)
         {
-            var ch = text[i];
-            if (ch == '"')
-            {
-                if (inQuotes && i + 1 < text.Length && text[i + 1] == '"')
-                {
-                    cell.Append('"');
-                    i++;
-                }
-                else
-                {
-                    inQuotes = !inQuotes;
-                }
-            }
-            else if (ch == delimiter && !inQuotes)
-            {
-                row.Add(cell.ToString().Trim());
-                cell.Clear();
-            }
-            else if ((ch == '\n' || ch == '\r') && !inQuotes)
-            {
-                if (ch == '\r' && i + 1 < text.Length && text[i + 1] == '\n') i++;
-                row.Add(cell.ToString().Trim());
-                cell.Clear();
-                rows.Add(row);
-                row = [];
-            }
-            else
-            {
-                cell.Append(ch);
-            }
-        }
-
-        if (cell.Length > 0 || row.Count > 0)
-        {
-            row.Add(cell.ToString().Trim());
-            rows.Add(row);
+            rows.Add((parser.ReadFields() ?? []).Select(field => field.Trim()).ToList());
         }
 
         return rows;
     }
 
-    private static char DetectDelimiter(string fileName, string text)
+    private static string DetectDelimiter(string fileName)
     {
-        if (fileName.EndsWith(".tsv", StringComparison.OrdinalIgnoreCase)) return '\t';
-        if (fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)) return ',';
-        var firstLine = text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
-        return firstLine.Count(ch => ch == '\t') > firstLine.Count(ch => ch == ',') ? '\t' : ',';
+        return fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ? "," : "\t";
     }
 
     private static int FindHeaderRow(IReadOnlyList<IReadOnlyList<string>> records)
@@ -507,11 +470,12 @@ public sealed class ManualImportService : IManualImportService
         return map.TryGetValue(header, out var indexes) && indexes.Count > 0 && indexes[0] < row.Count ? row[indexes[0]].Trim() : string.Empty;
     }
 
-    private static List<string> GetRepeated(IReadOnlyList<string> row, IReadOnlyDictionary<string, List<int>> map, params string[] headers)
+    private static List<string> GetRepeated(IReadOnlyList<string> row, IReadOnlyDictionary<string, List<int>> map, int maxCount, params string[] headers)
     {
         return headers
             .Where(map.ContainsKey)
             .SelectMany(header => map[header])
+            .Take(maxCount)
             .Where(index => index < row.Count)
             .Select(index => row[index].Trim())
             .Where(value => !string.IsNullOrWhiteSpace(value))
@@ -523,6 +487,7 @@ public sealed class ManualImportService : IManualImportService
         var qaIndexes = map.TryGetValue("QA Status", out var qa) ? qa : [];
         var devIndexes = map.TryGetValue("Dev. Status", out var dev) ? dev : [];
         var max = Math.Max(qaIndexes.Count, devIndexes.Count);
+        max = Math.Min(max, 4);
         var rounds = new List<QaRound>();
         for (var i = 0; i < max; i++)
         {
@@ -564,6 +529,26 @@ public sealed class ManualImportService : IManualImportService
     private static bool IsFinalAction(string action)
     {
         return action == OverwriteAction || action == SkipAction;
+    }
+
+    private static bool PreconditionIsRecognized(string value)
+    {
+        var trimmed = value.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed)) return true;
+        if (trimmed.Equals("All user", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("All roles", StringComparison.OrdinalIgnoreCase)) return true;
+        var roleText = trimmed;
+        var paren = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(.*?)\s*\(([A-Za-z0-9]+)\)\s*$");
+        if (paren.Success)
+        {
+            roleText = paren.Groups[1].Value;
+        }
+        else if (trimmed.Contains('_'))
+        {
+            roleText = trimmed.Split('_', 2)[0];
+        }
+
+        roleText = System.Text.RegularExpressions.Regex.Replace(roleText, @"\s*role\s*$", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+        return new[] { "Author", "PE", "Collator", "Editor" }.Any(role => role.Equals(roleText, StringComparison.OrdinalIgnoreCase));
     }
 
     private sealed record ParsedUpload(IReadOnlyList<ParsedRow> Rows, IReadOnlyList<QaImportBatchError> Errors);

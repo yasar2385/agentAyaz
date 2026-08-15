@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ImpactSupport.Api.Migrations
 {
     [DbContext(typeof(SupportDbContext))]
-    [Migration("20260815032352_InitialSupportChatSqlite")]
+    [Migration("20260815033244_InitialSupportChatSqlite")]
     partial class InitialSupportChatSqlite
     {
         /// <inheritdoc />

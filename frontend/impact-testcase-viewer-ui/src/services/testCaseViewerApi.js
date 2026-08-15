@@ -138,6 +138,61 @@ export async function commitImportBatch(batchId, user = null) {
   return postJson(`/api/testcaseviewer/import/${encodeURIComponent(batchId)}/commit`, {}, 'Failed to commit import', user);
 }
 
+export async function getPlaywrightReadiness(user = null) {
+  return getJson('/api/testcaseviewer/runs/readiness', 'Failed to fetch Playwright readiness', user);
+}
+
+export async function getRunMetadata(user = null) {
+  return getJson('/api/testcaseviewer/runs/metadata', 'Failed to fetch run metadata', user);
+}
+
+export async function getRunConfigs(user = null) {
+  return getJson('/api/testcaseviewer/runs/configs', 'Failed to fetch run configs', user);
+}
+
+export async function saveRunConfig(payload, user = null, configId = null) {
+  if (configId) {
+    return putJson(`/api/testcaseviewer/runs/configs/${encodeURIComponent(configId)}`, payload, 'Failed to update run config', user);
+  }
+  return postJson('/api/testcaseviewer/runs/configs', payload, 'Failed to save run config', user);
+}
+
+export async function triggerRunConfig(configId, user = null) {
+  return postJson(`/api/testcaseviewer/runs/configs/${encodeURIComponent(configId)}/trigger`, {}, 'Failed to trigger run', user);
+}
+
+export async function getRunExecution(executionId, user = null) {
+  return getJson(`/api/testcaseviewer/runs/executions/${encodeURIComponent(executionId)}`, 'Failed to fetch run execution', user);
+}
+
+export async function cancelRunExecution(executionId, user = null) {
+  return postJson(`/api/testcaseviewer/runs/executions/${encodeURIComponent(executionId)}/cancel`, {}, 'Failed to cancel run', user);
+}
+
+export async function getRecentRuns(scope = 'mine', limit = 20, user = null) {
+  return getJson(
+    `/api/testcaseviewer/runs/recent?scope=${encodeURIComponent(scope)}&limit=${encodeURIComponent(limit)}`,
+    'Failed to fetch recent runs',
+    user,
+  );
+}
+
+export async function getRunProgress(configId, user = null) {
+  return getJson(`/api/testcaseviewer/runs/${encodeURIComponent(configId)}/progress`, 'Failed to fetch run progress', user);
+}
+
+export async function continueRunConfig(configId, user = null) {
+  return postJson(`/api/testcaseviewer/runs/${encodeURIComponent(configId)}/continue`, {}, 'Failed to continue testing', user);
+}
+
+export async function verifyFix(payload, user = null) {
+  return postJson('/api/testcaseviewer/runs/verify-fix', payload, 'Failed to verify bug fix', user);
+}
+
+export function runReportUrl(executionId) {
+  return `${API_BASE}/api/testcaseviewer/runs/executions/${encodeURIComponent(executionId)}/report`;
+}
+
 export async function getSheetRows(fileId, sheetName) {
   return getJson(
     `/api/testcaseviewer/files/${encodeURIComponent(fileId)}/sheets/${encodeURIComponent(sheetName)}/rows`,
@@ -157,6 +212,19 @@ async function getJson(path, fallbackMessage, user = null) {
 async function postJson(path, payload, fallbackMessage, user = null) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(user) },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(readErrorMessage(text) || fallbackMessage);
+  }
+  return res.json();
+}
+
+async function putJson(path, payload, fallbackMessage, user = null) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders(user) },
     body: JSON.stringify(payload),
   });
