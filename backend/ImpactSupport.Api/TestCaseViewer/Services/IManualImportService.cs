@@ -4,6 +4,8 @@ namespace ImpactSupport.Api.TestCaseViewer.Services;
 
 public interface IManualImportService
 {
+    Task<ImportInspectResponse> InspectAsync(IFormFile file, CancellationToken cancellationToken = default);
+    Task<ImportBatchResponse> ParseMasterAsync(ParseMasterImportRequest request, AuthUser? user, CancellationToken cancellationToken = default);
     Task<ImportBatchResponse> UploadMasterAsync(IFormFile file, AuthUser? user, CancellationToken cancellationToken = default);
     Task<ImportBatchResponse> UploadResultsAsync(IReadOnlyList<IFormFile> files, string resultMode, AuthUser? user, CancellationToken cancellationToken = default);
     Task<ImportBatchResponse?> GetBatchAsync(int batchId, CancellationToken cancellationToken = default);

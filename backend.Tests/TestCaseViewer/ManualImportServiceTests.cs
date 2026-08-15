@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using ImpactSupport.Api.Support.Data;
@@ -126,6 +127,25 @@ public sealed class ManualImportServiceTests
         Assert.Contains("Unrecognized Preconditions", error.ErrorMessage);
     }
 
+    [Fact]
+    public async Task UploadMasterAsync_ReadsXlsxWorksheetsAndNormalizesCellLineBreaks()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+
+        var batch = await service.UploadMasterAsync(XlsxFile("master.xlsx"), null);
+
+        Assert.Equal("XLSX workbook", batch.SourceType);
+        Assert.Equal(2, batch.SheetsDetected);
+        Assert.Contains(batch.Sheets, sheet => sheet.SheetName == "Contact Support");
+        Assert.Contains(batch.Sheets, sheet => sheet.SheetName == "Billing");
+        Assert.Equal(0, batch.RowsError);
+        await service.CommitAsync(batch.BatchId);
+        var contact = await db.MasterTemplates.Include(item => item.Details).SingleAsync(item => item.MasterTestId == "TC_XLSX_001");
+        Assert.Equal("Contact Support", contact.MasterSourceSheet);
+        Assert.Equal("Line one\nLine two", contact.Details?.MasterDescription);
+    }
+
     private static SupportDbContext CreateDbContext()
     {
         var connection = new SqliteConnection("DataSource=:memory:");
@@ -161,6 +181,80 @@ public sealed class ManualImportServiceTests
     {
         var bytes = Encoding.UTF8.GetBytes(content);
         return new FormFile(new MemoryStream(bytes), 0, bytes.Length, "file", fileName);
+    }
+
+    private static IFormFile XlsxFile(string fileName)
+    {
+        var stream = new MemoryStream();
+        using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            AddEntry(archive, "[Content_Types].xml", """
+<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>
+""");
+            AddEntry(archive, "_rels/.rels", """
+<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>
+""");
+            AddEntry(archive, "xl/workbook.xml", """
+<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Contact Support" sheetId="1" r:id="rId1"/>
+    <sheet name="Billing" sheetId="2" r:id="rId2"/>
+  </sheets>
+</workbook>
+""");
+            AddEntry(archive, "xl/_rels/workbook.xml.rels", """
+<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+</Relationships>
+""");
+            AddEntry(archive, "xl/worksheets/sheet1.xml", WorksheetXml("TC_XLSX_001", "Contact Support", "Line one\r\nLine two"));
+            AddEntry(archive, "xl/worksheets/sheet2.xml", WorksheetXml("TC_XLSX_002", "Billing", "Billing description"));
+        }
+        stream.Position = 0;
+        return new FormFile(stream, 0, stream.Length, "file", fileName);
+    }
+
+    private static string WorksheetXml(string testCaseId, string module, string description)
+    {
+        return $$"""
+<?xml version="1.0" encoding="UTF-8"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="inlineStr"><is><t>Test Case ID</t></is></c>
+      <c r="B1" t="inlineStr"><is><t>Module/Sub Module</t></is></c>
+      <c r="C1" t="inlineStr"><is><t>Type of testing</t></is></c>
+      <c r="D1" t="inlineStr"><is><t>Test Case Description</t></is></c>
+    </row>
+    <row r="2">
+      <c r="A2" t="inlineStr"><is><t>{{testCaseId}}</t></is></c>
+      <c r="B2" t="inlineStr"><is><t>{{module}}</t></is></c>
+      <c r="C2" t="inlineStr"><is><t>Tomcat_Reg</t></is></c>
+      <c r="D2" t="inlineStr"><is><t>{{System.Security.SecurityElement.Escape(description)}}</t></is></c>
+    </row>
+  </sheetData>
+</worksheet>
+""";
+    }
+
+    private static void AddEntry(ZipArchive archive, string path, string content)
+    {
+        var entry = archive.CreateEntry(path);
+        using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
+        writer.Write(content);
     }
 
     private static string Tsv(params string[][] rows)

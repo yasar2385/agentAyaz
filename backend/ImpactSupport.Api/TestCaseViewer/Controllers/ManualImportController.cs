@@ -15,6 +15,27 @@ public sealed class ManualImportController : ControllerBase
         _importService = importService;
     }
 
+    [HttpPost("inspect")]
+    [RequestSizeLimit(50_000_000)]
+    public async Task<IActionResult> Inspect(IFormFile file, CancellationToken cancellationToken)
+    {
+        if (file == null) return BadRequest("file must be provided");
+        return Ok(await _importService.InspectAsync(file, cancellationToken));
+    }
+
+    [HttpPost("master/parse")]
+    public async Task<IActionResult> ParseMaster(ParseMasterImportRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await _importService.ParseMasterAsync(request, ReadUser(), cancellationToken));
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPost("master/upload")]
     [RequestSizeLimit(50_000_000)]
     public async Task<IActionResult> UploadMaster(IFormFile file, CancellationToken cancellationToken)

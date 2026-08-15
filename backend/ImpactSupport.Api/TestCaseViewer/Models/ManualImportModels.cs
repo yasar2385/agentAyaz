@@ -6,6 +6,7 @@ public sealed class ImportBatchResponse
     public string UploadKind { get; set; } = string.Empty;
     public string ResultMode { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
+    public string SourceType { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public int RowsAdded { get; set; }
     public int RowsUpdated { get; set; }
@@ -34,6 +35,26 @@ public sealed class ImportBatchErrorResponse
     public int RowNumber { get; set; }
     public string RawValue { get; set; } = string.Empty;
     public string ErrorMessage { get; set; } = string.Empty;
+}
+
+public sealed class ImportInspectResponse
+{
+    public string UploadToken { get; set; } = string.Empty;
+    public string SourceType { get; set; } = string.Empty;
+    public IReadOnlyList<ImportInspectSheetResponse> Sheets { get; set; } = [];
+}
+
+public sealed class ImportInspectSheetResponse
+{
+    public string SheetName { get; set; } = string.Empty;
+    public string Visibility { get; set; } = "visible";
+    public int RowCountEstimate { get; set; }
+}
+
+public sealed class ParseMasterImportRequest
+{
+    public string UploadToken { get; set; } = string.Empty;
+    public IReadOnlyList<string> SheetNames { get; set; } = [];
 }
 
 public sealed class SheetActionRequest

@@ -132,6 +132,459 @@ namespace ImpactSupport.Api.Migrations
                     b.ToTable("SupportSessions");
                 });
 
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.Client", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("Clients", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.ContentType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Value")
+                        .IsUnique();
+
+                    b.ToTable("Types", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Value = "Journal"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Value = "Book"
+                        });
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.DtdType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Value")
+                        .IsUnique();
+
+                    b.ToTable("DtdType", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Value = "JATS"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Value = "BITS"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Value = "DOCBOOK"
+                        });
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterDevStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Value")
+                        .IsUnique();
+
+                    b.ToTable("MasterDevStatuses", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Value = "Fixed"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Value = "Rejected"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Value = "WIP"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Value = "Open"
+                        });
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterIssueType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Value")
+                        .IsUnique();
+
+                    b.ToTable("MasterIssueTypes", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Value = "Bug"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Value = "Change Request"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Value = "Enhancement"
+                        });
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterModule", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("MasterModules", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterPreconditionRole", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Value")
+                        .IsUnique();
+
+                    b.ToTable("MasterPreconditionRoles", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Value = "Author"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Value = "PE"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Value = "Collator"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Value = "Editor"
+                        });
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterQaStatus", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Value")
+                        .IsUnique();
+
+                    b.ToTable("MasterQaStatuses", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Value = "Pass"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Value = "Fail"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Value = "Fixed"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Value = "Rejected"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Value = "WIP"
+                        });
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplate", b =>
+                {
+                    b.Property<int>("MasterId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("MasterActualResult")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("MasterClient")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("MasterCreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("MasterDevStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MasterDtdType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("MasterExpectedResult")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("MasterIsCollaborative")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MasterIssueType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MasterModules")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MasterPreconditionRole")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("MasterPreparedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MasterPreparedDate")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("MasterQaStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MasterRoleWorkflow")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MasterSourceRow")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("MasterSourceSheet")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MasterTestData")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MasterTestId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MasterTestNo")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("MasterType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("MasterUpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("MasterId");
+
+                    b.HasIndex("MasterTestId")
+                        .IsUnique();
+
+                    b.ToTable("MasterTemplate", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateRemark", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DevRemark")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MasterId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("QaRemark")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RoundNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MasterId");
+
+                    b.ToTable("MasterTemplateRemarks", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateTestingType", b =>
+                {
+                    b.Property<int>("MasterId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TestingTypeId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("MasterId", "TestingTypeId");
+
+                    b.ToTable("MasterTemplateTestingTypes", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTestDetails", b =>
+                {
+                    b.Property<int>("MasterId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("MasterDescription")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MasterTestSteps")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("MasterId");
+
+                    b.ToTable("MasterTestDetails", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTestingType", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Value")
+                        .IsUnique();
+
+                    b.ToTable("MasterTestingTypes", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Value = "Basic"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Value = "Mock"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Value = "Browser"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            Value = "Regression"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            Value = "Tomcat_Reg"
+                        });
+                });
+
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaDashboardFileCache", b =>
                 {
                     b.Property<int>("Id")
@@ -500,6 +953,71 @@ namespace ImpactSupport.Api.Migrations
                     b.ToTable("QaImportBatchSheets");
                 });
 
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.RefStyle", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Value")
+                        .IsUnique();
+
+                    b.ToTable("RefStyles", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.RoleWorkflow", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Value")
+                        .IsUnique();
+
+                    b.ToTable("RoleWorkflows", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            IsDefault = true,
+                            Value = "Author_Editor_Collator"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            IsDefault = false,
+                            Value = "Editor_Author_Collator"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            IsDefault = false,
+                            Value = "Author_Collator"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            IsDefault = false,
+                            Value = "Editor_Collator"
+                        });
+                });
+
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestCaseViewerUser", b =>
                 {
                     b.Property<long>("Id")
@@ -554,6 +1072,387 @@ namespace ImpactSupport.Api.Migrations
                     b.ToTable("TestCaseViewerUsers");
                 });
 
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfig", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TestingName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TestingName")
+                        .IsUnique();
+
+                    b.ToTable("TestRunConfigs");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfigFlag", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ConfigId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FlagKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FlagValue")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConfigId", "FlagKey")
+                        .IsUnique();
+
+                    b.ToTable("TestRunConfigFlags");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfigTarget", b =>
+                {
+                    b.Property<int>("ConfigId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ModuleName")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ConfigId", "ModuleName");
+
+                    b.ToTable("TestRunConfigTargets");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfigTestingType", b =>
+                {
+                    b.Property<int>("ConfigId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Value")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ConfigId", "Value");
+
+                    b.ToTable("TestRunConfigTestingTypes");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfigWorkflowContext", b =>
+                {
+                    b.Property<int>("ConfigId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Client")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Domain")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MantisTicket")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RefStyle")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RoleWorkflow")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TestingUrl")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ConfigId");
+
+                    b.ToTable("TestRunConfigWorkflowContexts");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunExecution", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ConfigId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ExitCode")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FailureSummary")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MantisTicket")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ModuleName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PlaywrightCommand")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PlaywrightTestsRef")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReportPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RunKind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TestCaseId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("TriggeredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TriggeredBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConfigId", "Status");
+
+                    b.ToTable("TestRunExecutions");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunProgress", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ConfigId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("LastExecutionId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LastModuleName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastExecutionId");
+
+                    b.HasIndex("ConfigId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("TestRunProgresses");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestingDataResult", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MasterDevStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MasterIssueType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("MasterQaStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("MasterTestId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TestingMetaResultId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TestingMetaResultId");
+
+                    b.ToTable("TestingDataResults", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestingMetaResult", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("RunAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("RunBy")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RunThrough")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("TestingMetaResults", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestingMetaResultLink", b =>
+                {
+                    b.Property<int>("TestingMetaResultId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("RoleId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TestingUrlId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("TestingMetaResultId", "RoleId");
+
+                    b.ToTable("TestingMetaResultLinks", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestingMetaResultModuleStat", b =>
+                {
+                    b.Property<int>("TestingMetaResultId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MasterModuleId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FailCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PassCount")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("TestingMetaResultId", "MasterModuleId");
+
+                    b.ToTable("TestingMetaResultModuleStats", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestingMetaResultTestingType", b =>
+                {
+                    b.Property<int>("TestingMetaResultId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TestingTypeId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("TestingMetaResultId", "TestingTypeId");
+
+                    b.ToTable("TestingMetaResultTestingTypes", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestingUrl", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UrlType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Value")
+                        .IsUnique();
+
+                    b.ToTable("TestingUrls", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            UrlType = "single",
+                            Value = "author"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            UrlType = "single",
+                            Value = "editor"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            UrlType = "single",
+                            Value = "collator"
+                        },
+                        new
+                        {
+                            Id = 4,
+                            UrlType = "multi_author",
+                            Value = "shared_author"
+                        },
+                        new
+                        {
+                            Id = 5,
+                            UrlType = "multi_author",
+                            Value = "shared_editor"
+                        },
+                        new
+                        {
+                            Id = 6,
+                            UrlType = "multi_author",
+                            Value = "shared_collator"
+                        });
+                });
+
             modelBuilder.Entity("ImpactSupport.Api.Support.Data.SupportMessage", b =>
                 {
                     b.HasOne("ImpactSupport.Api.Support.Data.SupportSession", "SupportSession")
@@ -564,6 +1463,39 @@ namespace ImpactSupport.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("SupportSession");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateRemark", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplate", "MasterTemplate")
+                        .WithMany("Remarks")
+                        .HasForeignKey("MasterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MasterTemplate");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateTestingType", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplate", "MasterTemplate")
+                        .WithMany("TestingTypes")
+                        .HasForeignKey("MasterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MasterTemplate");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTestDetails", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplate", "MasterTemplate")
+                        .WithOne("Details")
+                        .HasForeignKey("ImpactSupport.Api.TestCaseViewer.Data.MasterTestDetails", "MasterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MasterTemplate");
                 });
 
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaDashboardSheetCache", b =>
@@ -618,9 +1550,113 @@ namespace ImpactSupport.Api.Migrations
                     b.Navigation("ImportBatch");
                 });
 
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfigFlag", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfig", "Config")
+                        .WithMany("Flags")
+                        .HasForeignKey("ConfigId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Config");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfigTarget", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfig", "Config")
+                        .WithMany("Targets")
+                        .HasForeignKey("ConfigId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Config");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfigTestingType", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfig", "Config")
+                        .WithMany("TestingTypes")
+                        .HasForeignKey("ConfigId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Config");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfigWorkflowContext", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfig", "Config")
+                        .WithOne("WorkflowContext")
+                        .HasForeignKey("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfigWorkflowContext", "ConfigId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Config");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunExecution", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfig", "Config")
+                        .WithMany("Executions")
+                        .HasForeignKey("ConfigId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Config");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunProgress", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfig", "Config")
+                        .WithMany()
+                        .HasForeignKey("ConfigId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.TestRunExecution", "LastExecution")
+                        .WithMany()
+                        .HasForeignKey("LastExecutionId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Config");
+
+                    b.Navigation("LastExecution");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestingDataResult", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.TestingMetaResult", "TestingMetaResult")
+                        .WithMany("DataResults")
+                        .HasForeignKey("TestingMetaResultId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TestingMetaResult");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestingMetaResultModuleStat", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.TestingMetaResult", "TestingMetaResult")
+                        .WithMany("ModuleStats")
+                        .HasForeignKey("TestingMetaResultId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TestingMetaResult");
+                });
+
             modelBuilder.Entity("ImpactSupport.Api.Support.Data.SupportSession", b =>
                 {
                     b.Navigation("Messages");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplate", b =>
+                {
+                    b.Navigation("Details");
+
+                    b.Navigation("Remarks");
+
+                    b.Navigation("TestingTypes");
                 });
 
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaDashboardFileCache", b =>
@@ -640,6 +1676,26 @@ namespace ImpactSupport.Api.Migrations
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.QaImportBatchSheet", b =>
                 {
                     b.Navigation("Rows");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestRunConfig", b =>
+                {
+                    b.Navigation("Executions");
+
+                    b.Navigation("Flags");
+
+                    b.Navigation("Targets");
+
+                    b.Navigation("TestingTypes");
+
+                    b.Navigation("WorkflowContext");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.TestingMetaResult", b =>
+                {
+                    b.Navigation("DataResults");
+
+                    b.Navigation("ModuleStats");
                 });
 #pragma warning restore 612, 618
         }

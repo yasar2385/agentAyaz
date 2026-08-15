@@ -321,6 +321,7 @@ function ImportSummary({ batch }) {
       <StatCard label="Existing" value={batch.existingSheets ?? 0} hint="needs action" />
       <StatCard label="Rows ready" value={(batch.rowsAdded ?? 0) + (batch.rowsUpdated ?? 0)} hint="dry-run" />
       <StatCard label="Errors" value={batch.rowsError ?? 0} hint={batch.status ?? 'DRY_RUN'} />
+      <StatCard label="Source" value={batch.sourceType || 'TSV'} hint="format" />
     </section>
   )
 }
@@ -416,7 +417,7 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
             <h2>Master Test Case Upload</h2>
             <p>CSV/TSV with Sheet Name, Module/Sub Module, and Test Case ID columns.</p>
           </div>
-          <input type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" onChange={event => setMasterFile(event.target.files?.[0] ?? null)} />
+          <input type="file" accept=".xlsx,.csv,.tsv,text/csv,text/tab-separated-values" onChange={event => setMasterFile(event.target.files?.[0] ?? null)} />
           <button type="submit" disabled={loading || !masterFile}>Dry-run master upload</button>
         </form>
 
@@ -432,7 +433,7 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
           <input
             type="file"
             multiple={resultMode === 'regression'}
-            accept=".csv,.tsv,text/csv,text/tab-separated-values"
+            accept=".xlsx,.csv,.tsv,text/csv,text/tab-separated-values"
             onChange={event => setResultFiles([...(event.target.files ?? [])])}
           />
           <button type="submit" disabled={loading || resultFiles.length === 0}>Dry-run result upload</button>

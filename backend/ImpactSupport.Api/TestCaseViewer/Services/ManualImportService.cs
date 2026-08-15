@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
+using System.IO.Compression;
 using ImpactSupport.Api.Support.Data;
 using ImpactSupport.Api.TestCaseViewer.Data;
 using ImpactSupport.Api.TestCaseViewer.Models;
@@ -177,36 +179,39 @@ public sealed class ManualImportService : IManualImportService
 
         foreach (var file in files)
         {
-            var records = ParseDelimited(file.OpenReadStream(), DetectDelimiter(file.FileName));
-            if (records.Count == 0) continue;
-
-            var headerIndex = FindHeaderRow(records);
-            if (headerIndex < 0)
+            foreach (var sourceSheet in ParseSourceSheets(file))
             {
-                errors.Add(new QaImportBatchError { RowNumber = 1, RawValue = file.FileName, ErrorMessage = "Header row with Test Case ID was not found." });
-                continue;
-            }
+                var records = sourceSheet.Records;
+                if (records.Count == 0) continue;
 
-            var map = BuildHeaderMap(records[headerIndex]);
-            for (var i = headerIndex + 1; i < records.Count; i++)
-            {
-                var record = records[i];
-                if (record.All(string.IsNullOrWhiteSpace)) continue;
-
-                var row = ToQaRow(file.FileName, record, map, uploadKind);
-                var rowErrors = ValidateRow(row, record);
-                if (rowErrors.Count > 0)
+                var headerIndex = FindHeaderRow(records);
+                if (headerIndex < 0)
                 {
-                    errors.AddRange(rowErrors.Select(message => new QaImportBatchError
-                    {
-                        RowNumber = i + 1,
-                        RawValue = string.Join(" | ", record),
-                        ErrorMessage = message
-                    }));
+                    errors.Add(new QaImportBatchError { RowNumber = 1, RawValue = sourceSheet.SourceName, ErrorMessage = "Header row with Test Case ID was not found." });
                     continue;
                 }
 
-                rows.Add(new ParsedRow(row, i + 1));
+                var map = BuildHeaderMap(records[headerIndex]);
+                for (var i = headerIndex + 1; i < records.Count; i++)
+                {
+                    var record = records[i];
+                    if (record.All(string.IsNullOrWhiteSpace)) continue;
+
+                    var row = ToQaRow(file.FileName, sourceSheet.SourceName, record, map, uploadKind);
+                    var rowErrors = ValidateRow(row, record);
+                    if (rowErrors.Count > 0)
+                    {
+                        errors.AddRange(rowErrors.Select(message => new QaImportBatchError
+                        {
+                            RowNumber = i + 1,
+                            RawValue = string.Join(" | ", record),
+                            ErrorMessage = message
+                        }));
+                        continue;
+                    }
+
+                    rows.Add(new ParsedRow(row, i + 1));
+                }
             }
         }
 
@@ -270,9 +275,9 @@ public sealed class ManualImportService : IManualImportService
         batch.RowsError = errors.Count;
     }
 
-    private static QaRow ToQaRow(string fileName, IReadOnlyList<string> record, IReadOnlyDictionary<string, List<int>> map, string uploadKind)
+    private static QaRow ToQaRow(string fileName, string sourceSheetName, IReadOnlyList<string> record, IReadOnlyDictionary<string, List<int>> map, string uploadKind)
     {
-        var sheetName = Path.GetFileNameWithoutExtension(fileName);
+        var sheetName = sourceSheetName;
 
         return new QaRow
         {
@@ -288,9 +293,9 @@ public sealed class ManualImportService : IManualImportService
             TestingType = First(record, map, "Type of testing", "TestingType"),
             Description = First(record, map, "Test Case Description", "Description"),
             TestCases = First(record, map, "Test Cases", "TestCases"),
-            TestData = First(record, map, "Test Data", "TestData"),
-            ExpectedResult = First(record, map, "Expected Result", "ExpectedResult"),
-            ActualResult = First(record, map, "Actual Result", "ActualResult"),
+            TestData = NormalizeText(First(record, map, "Test Data", "TestData")),
+            ExpectedResult = NormalizeText(First(record, map, "Expected Result", "ExpectedResult")),
+            ActualResult = NormalizeText(First(record, map, "Actual Result", "ActualResult")),
             IssueType = First(record, map, "Issue Type", "IssueType"),
             QaStatus = First(record, map, "QA Status", "QAStatus"),
             DevStatus = First(record, map, "Dev. Status", "DevStatus"),
@@ -476,6 +481,7 @@ public sealed class ManualImportService : IManualImportService
             UploadKind = batch.UploadKind,
             ResultMode = batch.ResultMode,
             FileName = batch.FileName,
+            SourceType = SourceType(batch.FileName),
             Status = batch.Status,
             RowsAdded = batch.RowsAdded,
             RowsUpdated = batch.RowsUpdated,
@@ -497,6 +503,17 @@ public sealed class ManualImportService : IManualImportService
         };
     }
 
+    private static IReadOnlyList<ParsedSheet> ParseSourceSheets(IFormFile file)
+    {
+        var sourceName = Path.GetFileNameWithoutExtension(file.FileName);
+        if (file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
+        {
+            return ParseXlsx(file.OpenReadStream());
+        }
+
+        return [new ParsedSheet(sourceName, ParseDelimited(file.OpenReadStream(), DetectDelimiter(file.FileName)))];
+    }
+
     private static List<List<string>> ParseDelimited(Stream stream, string delimiter)
     {
         var rows = new List<List<string>>();
@@ -506,15 +523,121 @@ public sealed class ManualImportService : IManualImportService
         parser.HasFieldsEnclosedInQuotes = true;
         while (!parser.EndOfData)
         {
-            rows.Add((parser.ReadFields() ?? []).Select(field => field.Trim()).ToList());
+            rows.Add((parser.ReadFields() ?? []).Select(field => NormalizeCell(field)).ToList());
         }
 
         return rows;
     }
 
+    private static IReadOnlyList<ParsedSheet> ParseXlsx(Stream stream)
+    {
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+        var sharedStrings = ReadSharedStrings(archive);
+        var workbook = XDocument.Load(archive.GetEntry("xl/workbook.xml")!.Open());
+        var rels = XDocument.Load(archive.GetEntry("xl/_rels/workbook.xml.rels")!.Open());
+        XNamespace main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        XNamespace packageRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+        var relTargets = rels.Root!.Elements(packageRelNs + "Relationship")
+            .ToDictionary(item => item.Attribute("Id")!.Value, item => item.Attribute("Target")!.Value);
+        var sheets = new List<ParsedSheet>();
+        foreach (var sheet in workbook.Root!.Element(main + "sheets")!.Elements(main + "sheet"))
+        {
+            var name = sheet.Attribute("name")!.Value;
+            var relationshipId = sheet.Attribute(relNs + "id")!.Value;
+            if (!relTargets.TryGetValue(relationshipId, out var target)) continue;
+            var entryPath = "xl/" + target.TrimStart('/').Replace('\\', '/');
+            var entry = archive.GetEntry(entryPath);
+            if (entry == null) continue;
+            sheets.Add(new ParsedSheet(name, ReadWorksheet(entry, sharedStrings)));
+        }
+
+        return sheets;
+    }
+
+    private static List<string> ReadSharedStrings(ZipArchive archive)
+    {
+        var entry = archive.GetEntry("xl/sharedStrings.xml");
+        if (entry == null) return [];
+        var document = XDocument.Load(entry.Open());
+        XNamespace main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        return document.Root!.Elements(main + "si")
+            .Select(item => string.Concat(item.Descendants(main + "t").Select(text => text.Value)))
+            .Select(NormalizeCell)
+            .ToList();
+    }
+
+    private static List<List<string>> ReadWorksheet(ZipArchiveEntry entry, IReadOnlyList<string> sharedStrings)
+    {
+        var document = XDocument.Load(entry.Open());
+        XNamespace main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        var rows = new List<List<string>>();
+        foreach (var row in document.Descendants(main + "row"))
+        {
+            var cells = new SortedDictionary<int, string>();
+            foreach (var cell in row.Elements(main + "c"))
+            {
+                var reference = cell.Attribute("r")?.Value ?? string.Empty;
+                var index = ColumnIndex(reference);
+                if (index < 0) continue;
+                cells[index] = ReadCell(cell, sharedStrings, main);
+            }
+
+            if (cells.Count == 0)
+            {
+                rows.Add([]);
+                continue;
+            }
+
+            var width = cells.Keys.Max() + 1;
+            var values = Enumerable.Repeat(string.Empty, width).ToList();
+            foreach (var item in cells) values[item.Key] = item.Value;
+            rows.Add(values);
+        }
+
+        return rows;
+    }
+
+    private static string ReadCell(XElement cell, IReadOnlyList<string> sharedStrings, XNamespace main)
+    {
+        var type = cell.Attribute("t")?.Value ?? string.Empty;
+        if (type == "inlineStr")
+        {
+            return NormalizeCell(string.Concat(cell.Descendants(main + "t").Select(text => text.Value)));
+        }
+
+        var value = cell.Element(main + "v")?.Value ?? string.Empty;
+        if (type == "s" && int.TryParse(value, out var index) && index >= 0 && index < sharedStrings.Count)
+        {
+            return sharedStrings[index];
+        }
+
+        return NormalizeCell(value);
+    }
+
+    private static int ColumnIndex(string reference)
+    {
+        var letters = new string(reference.TakeWhile(char.IsLetter).ToArray());
+        if (letters.Length == 0) return -1;
+        var index = 0;
+        foreach (var letter in letters.ToUpperInvariant())
+        {
+            index = index * 26 + letter - 'A' + 1;
+        }
+
+        return index - 1;
+    }
+
     private static string DetectDelimiter(string fileName)
     {
         return fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ? "," : "\t";
+    }
+
+    private static string SourceType(string fileName)
+    {
+        if (fileName.Split(',', StringSplitOptions.TrimEntries).Any(name => name.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))) return "XLSX workbook";
+        if (fileName.Split(',', StringSplitOptions.TrimEntries).Any(name => name.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))) return "CSV";
+        return "TSV";
     }
 
     private static int FindHeaderRow(IReadOnlyList<IReadOnlyList<string>> records)
@@ -706,10 +829,12 @@ public sealed class ManualImportService : IManualImportService
 
     private static IReadOnlyList<string> SplitTestingTypes(string value) => value.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     private static string NormalizeText(string value) => value.Replace("\r\n", "\n").Replace('\r', '\n');
+    private static string NormalizeCell(string? value) => NormalizeText(value ?? string.Empty).Trim();
     private static readonly string[] KnownTestingTypes = ["Basic", "Mock", "Browser", "Regression", "Tomcat_Reg"];
 
     private sealed record ParsedUpload(IReadOnlyList<ParsedRow> Rows, IReadOnlyList<QaImportBatchError> Errors);
     private sealed record ParsedRow(QaRow Row, int SourceRowNumber);
+    private sealed record ParsedSheet(string SourceName, List<List<string>> Records);
 }
 
 file static class ImportSheetExtensions

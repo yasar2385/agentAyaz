@@ -5,12 +5,8 @@
     "\\backend\\ImpactSupport.Api",
     "\\backend\\ImpactSupport.Api\\TestCaseViewer",
     "\\backend\\ImpactSupport.Api\\TestCaseViewer\\Controllers",
-    "\\frontend",
-    "\\frontend\\impact-testcase-viewer-ui\\src",
-    "\\frontend\\impact-testcase-viewer-ui\\src\\components",
-    "\\frontend\\impact-testcase-viewer-ui\\src\\components\\TestCaseViewer",
-    "\\frontend\\impact-testcase-viewer-ui\\src\\services"
+    "\\frontend"
   ],
-  "SelectedNode": "\\backend\\ImpactSupport.Api\\appsettings.Development.json",
+  "SelectedNode": "\\.gitignore",
   "PreviewInSolutionExplorer": false
 }
