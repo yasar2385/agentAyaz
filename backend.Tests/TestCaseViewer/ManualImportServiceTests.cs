@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using ImpactSupport.Api.Support.Data;
 using ImpactSupport.Api.TestCaseViewer.Data;
+using ImpactSupport.Api.TestCaseViewer.Models;
 using ImpactSupport.Api.TestCaseViewer.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
@@ -146,6 +147,30 @@ public sealed class ManualImportServiceTests
         Assert.Equal("Line one\nLine two", contact.Details?.MasterDescription);
     }
 
+    [Fact]
+    public async Task InspectAndParseMasterAsync_ExcludesHiddenSheetsUntilSelected()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+
+        var inspect = await service.InspectAsync(XlsxFile("master.xlsx", includeHiddenStates: true));
+
+        Assert.Empty(await db.QaImportBatches.ToListAsync());
+        Assert.Contains(inspect.Sheets, sheet => sheet.SheetName == "Contact Support" && sheet.Visibility == "visible");
+        Assert.Contains(inspect.Sheets, sheet => sheet.SheetName == "Billing" && sheet.Visibility == "hidden");
+        Assert.Contains(inspect.Sheets, sheet => sheet.SheetName == "Scratch" && sheet.Visibility == "very_hidden");
+
+        var batch = await service.ParseMasterAsync(new ParseMasterImportRequest
+        {
+            UploadToken = inspect.UploadToken,
+            SheetNames = ["Contact Support"]
+        }, null);
+
+        Assert.Equal(1, batch.SheetsDetected);
+        Assert.Equal("Contact Support", Assert.Single(batch.Sheets).SheetName);
+        Assert.DoesNotContain(batch.Sheets, sheet => sheet.SheetName == "Billing");
+    }
+
     private static SupportDbContext CreateDbContext()
     {
         var connection = new SqliteConnection("DataSource=:memory:");
@@ -183,7 +208,7 @@ public sealed class ManualImportServiceTests
         return new FormFile(new MemoryStream(bytes), 0, bytes.Length, "file", fileName);
     }
 
-    private static IFormFile XlsxFile(string fileName)
+    private static IFormFile XlsxFile(string fileName, bool includeHiddenStates = false)
     {
         var stream = new MemoryStream();
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
@@ -204,7 +229,16 @@ public sealed class ManualImportServiceTests
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>
 """);
-            AddEntry(archive, "xl/workbook.xml", """
+            AddEntry(archive, "xl/workbook.xml", includeHiddenStates ? """
+<?xml version="1.0" encoding="UTF-8"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Contact Support" sheetId="1" r:id="rId1"/>
+    <sheet name="Billing" sheetId="2" state="hidden" r:id="rId2"/>
+    <sheet name="Scratch" sheetId="3" state="veryHidden" r:id="rId3"/>
+  </sheets>
+</workbook>
+""" : """
 <?xml version="1.0" encoding="UTF-8"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheets>
@@ -213,7 +247,14 @@ public sealed class ManualImportServiceTests
   </sheets>
 </workbook>
 """);
-            AddEntry(archive, "xl/_rels/workbook.xml.rels", """
+            AddEntry(archive, "xl/_rels/workbook.xml.rels", includeHiddenStates ? """
+<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/>
+</Relationships>
+""" : """
 <?xml version="1.0" encoding="UTF-8"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
@@ -222,6 +263,7 @@ public sealed class ManualImportServiceTests
 """);
             AddEntry(archive, "xl/worksheets/sheet1.xml", WorksheetXml("TC_XLSX_001", "Contact Support", "Line one\r\nLine two"));
             AddEntry(archive, "xl/worksheets/sheet2.xml", WorksheetXml("TC_XLSX_002", "Billing", "Billing description"));
+            if (includeHiddenStates) AddEntry(archive, "xl/worksheets/sheet3.xml", WorksheetXml("TC_XLSX_003", "Scratch", "Scratch description"));
         }
         stream.Position = 0;
         return new FormFile(stream, 0, stream.Length, "file", fileName);

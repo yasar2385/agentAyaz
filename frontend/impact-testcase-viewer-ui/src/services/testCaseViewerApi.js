@@ -110,6 +110,16 @@ export async function uploadMasterImport(file, user = null) {
   return postForm('/api/testcaseviewer/import/master/upload', formData, 'Failed to upload master test cases', user);
 }
 
+export async function inspectImportFile(file, user = null) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return postForm('/api/testcaseviewer/import/inspect', formData, 'Failed to inspect import file', user);
+}
+
+export async function parseMasterImport(uploadToken, sheetNames, user = null) {
+  return postJson('/api/testcaseviewer/import/master/parse', { uploadToken, sheetNames }, 'Failed to parse master test cases', user);
+}
+
 export async function uploadResultImport(files, resultMode = 'single', user = null) {
   const formData = new FormData();
   files.forEach(file => formData.append('files', file));

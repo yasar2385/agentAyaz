@@ -13,6 +13,8 @@ import {
   downloadToLocal,
   login,
   uploadMasterImport,
+  inspectImportFile,
+  parseMasterImport,
   uploadResultImport,
   getImportErrors,
   saveMasterSheetActions,
@@ -332,6 +334,8 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
   const [resultMode, setResultMode] = useState('single')
   const [masterBatch, setMasterBatch] = useState(null)
   const [resultBatch, setResultBatch] = useState(null)
+  const [masterInspect, setMasterInspect] = useState(null)
+  const [selectedMasterSheets, setSelectedMasterSheets] = useState([])
   const [errors, setErrors] = useState([])
   const [ackErrors, setAckErrors] = useState(false)
   const [message, setMessage] = useState('')
@@ -340,10 +344,34 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
     event.preventDefault()
     if (!masterFile) return
     await runImport(async () => {
-      const batch = await uploadMasterImport(masterFile, user)
-      setMasterBatch(batch)
+      const inspect = await inspectImportFile(masterFile, user)
+      const visibleSheets = (inspect.sheets ?? []).filter(sheet => sheet.visibility === 'visible').map(sheet => sheet.sheetName)
+      setMasterInspect(inspect)
+      setSelectedMasterSheets(visibleSheets)
+      setMasterBatch(null)
       setResultBatch(null)
       setAckErrors(false)
+      setErrors([])
+      if (inspect.sourceType !== 'XLSX workbook') {
+        const batch = await parseMasterImport(inspect.uploadToken, visibleSheets, user)
+        setMasterBatch(batch)
+        setMasterInspect(null)
+        setSelectedMasterSheets([])
+        setErrors(batch.errors ?? (batch.rowsError ? await getImportErrors(batch.batchId, user) : []))
+        setMessage('Master upload dry-run is ready.')
+      } else {
+        setMessage('Choose workbook sheets before dry-run.')
+      }
+    })
+  }
+
+  async function parseSelectedMasterSheets() {
+    if (!masterInspect) return
+    await runImport(async () => {
+      const batch = await parseMasterImport(masterInspect.uploadToken, selectedMasterSheets, user)
+      setMasterBatch(batch)
+      setMasterInspect(null)
+      setSelectedMasterSheets([])
       setErrors(batch.errors ?? (batch.rowsError ? await getImportErrors(batch.batchId, user) : []))
       setMessage('Master upload dry-run is ready.')
     })
@@ -401,6 +429,12 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
     })
   }
 
+  function toggleMasterSheet(sheetName) {
+    setSelectedMasterSheets(current => current.includes(sheetName)
+      ? current.filter(item => item !== sheetName)
+      : [...current, sheetName])
+  }
+
   const activeBatch = masterBatch || resultBatch
   const hasErrors = (activeBatch?.rowsError ?? 0) > 0
   const unresolvedMasterConflicts = (masterBatch?.sheets ?? [])
@@ -418,7 +452,7 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
             <p>CSV/TSV with Sheet Name, Module/Sub Module, and Test Case ID columns.</p>
           </div>
           <input type="file" accept=".xlsx,.csv,.tsv,text/csv,text/tab-separated-values" onChange={event => setMasterFile(event.target.files?.[0] ?? null)} />
-          <button type="submit" disabled={loading || !masterFile}>Dry-run master upload</button>
+          <button type="submit" disabled={loading || !masterFile}>Inspect master upload</button>
         </form>
 
         <form className="upload-card" onSubmit={runResultUpload}>
@@ -443,6 +477,50 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
       {message && <section className="notice compact">{message}</section>}
 
       <ImportSummary batch={activeBatch} />
+
+      {masterInspect && masterInspect.sourceType === 'XLSX workbook' && (
+        <section className="upload-review">
+          <div className="section-heading">
+            <h2>Workbook Sheet Selection</h2>
+            <span>{masterInspect.sourceType}</span>
+          </div>
+          <div className="topbar-actions">
+            <button className="secondary" type="button" onClick={() => setSelectedMasterSheets(masterInspect.sheets.filter(sheet => sheet.visibility === 'visible').map(sheet => sheet.sheetName))}>Select all visible</button>
+            <button className="secondary" type="button" onClick={() => setSelectedMasterSheets(masterInspect.sheets.map(sheet => sheet.sheetName))}>Select all including hidden</button>
+            <button className="ghost" type="button" onClick={() => setSelectedMasterSheets([])}>Clear</button>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Include</th>
+                  <th>Sheet</th>
+                  <th>Visibility</th>
+                  <th>Rows</th>
+                </tr>
+              </thead>
+              <tbody>
+                {masterInspect.sheets.map(sheet => (
+                  <tr key={sheet.sheetName}>
+                    <td><input type="checkbox" checked={selectedMasterSheets.includes(sheet.sheetName)} onChange={() => toggleMasterSheet(sheet.sheetName)} /></td>
+                    <td>{sheet.sheetName}</td>
+                    <td>
+                      <StatusPill
+                        label={sheet.visibility === 'very_hidden' ? 'Hidden (advanced)' : sheet.visibility === 'hidden' ? 'Hidden in source file' : 'Visible'}
+                        tone={sheet.visibility === 'visible' ? 'good' : sheet.visibility === 'very_hidden' ? 'bad' : 'warn'}
+                      />
+                    </td>
+                    <td>{sheet.rowCountEstimate}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button type="button" onClick={parseSelectedMasterSheets} disabled={loading || selectedMasterSheets.length === 0}>
+            Continue to dry-run
+          </button>
+        </section>
+      )}
 
       {masterBatch && (
         <section className="upload-review">

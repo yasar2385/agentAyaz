@@ -21,6 +21,7 @@ public sealed class ManualImportService : IManualImportService
     private const string OverwriteAction = "OVERWRITE";
     private const string SkipAction = "SKIP";
     private const string MasterFileId = "manual-master";
+    private static readonly TimeSpan UploadTokenTtl = TimeSpan.FromMinutes(30);
 
     private readonly SupportDbContext _dbContext;
 
@@ -29,11 +30,71 @@ public sealed class ManualImportService : IManualImportService
         _dbContext = dbContext;
     }
 
+    public async Task<ImportInspectResponse> InspectAsync(IFormFile file, CancellationToken cancellationToken = default)
+    {
+        if (file.Length == 0) throw new ArgumentException("Upload file is empty.", nameof(file));
+        CleanupExpiredUploads();
+        var token = Guid.NewGuid().ToString("N");
+        var directory = TempUploadDirectory();
+        Directory.CreateDirectory(directory);
+        var extension = Path.GetExtension(file.FileName);
+        var dataPath = Path.Combine(directory, $"{token}{extension}");
+        await using (var output = File.Create(dataPath))
+        await using (var input = file.OpenReadStream())
+        {
+            await input.CopyToAsync(output, cancellationToken);
+        }
+
+        var metadata = new TempUploadMetadata
+        {
+            Token = token,
+            FileName = file.FileName,
+            StoredPath = dataPath,
+            ExpiresAt = DateTimeOffset.UtcNow.Add(UploadTokenTtl)
+        };
+        await File.WriteAllTextAsync(MetadataPath(token), JsonSerializer.Serialize(metadata), cancellationToken);
+
+        var sheets = file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)
+            ? InspectXlsx(dataPath)
+            : [new ImportInspectSheetResponse { SheetName = Path.GetFileNameWithoutExtension(file.FileName), Visibility = "visible", RowCountEstimate = 0 }];
+
+        return new ImportInspectResponse
+        {
+            UploadToken = token,
+            SourceType = SourceType(file.FileName),
+            Sheets = sheets
+        };
+    }
+
+    public async Task<ImportBatchResponse> ParseMasterAsync(ParseMasterImportRequest request, AuthUser? user, CancellationToken cancellationToken = default)
+    {
+        var metadata = await ReadTempUploadAsync(request.UploadToken, cancellationToken);
+        if (metadata == null) throw new ArgumentException("Upload token is missing or expired.");
+        if (metadata.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) && request.SheetNames.Count == 0)
+        {
+            throw new ArgumentException("Select at least one workbook sheet before dry-run.");
+        }
+
+        await using var stream = new FileStream(metadata.StoredPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var file = new FormFile(stream, 0, stream.Length, "file", metadata.FileName);
+        try
+        {
+            return await UploadMasterAsync(file, user, cancellationToken, request.SheetNames);
+        }
+        finally
+        {
+            DeleteTempUpload(metadata);
+        }
+    }
+
     public async Task<ImportBatchResponse> UploadMasterAsync(IFormFile file, AuthUser? user, CancellationToken cancellationToken = default)
+        => await UploadMasterAsync(file, user, cancellationToken, []);
+
+    private async Task<ImportBatchResponse> UploadMasterAsync(IFormFile file, AuthUser? user, CancellationToken cancellationToken, IReadOnlyList<string> selectedSheetNames)
     {
         if (file.Length == 0) throw new ArgumentException("Upload file is empty.", nameof(file));
 
-        var parsed = await ParseFilesAsync([file], MasterKind, cancellationToken);
+        var parsed = await ParseFilesAsync([file], MasterKind, cancellationToken, selectedSheetNames);
         var dryRunErrors = parsed.Errors.ToList();
         var existingSheets = await _dbContext.QaDashboardSheetCaches
             .AsNoTracking()
@@ -63,7 +124,7 @@ public sealed class ManualImportService : IManualImportService
         if (files.Count == 0) throw new ArgumentException("At least one result file is required.", nameof(files));
 
         var normalizedMode = resultMode.Equals("regression", StringComparison.OrdinalIgnoreCase) ? "regression" : "single";
-        var parsed = await ParseFilesAsync(files, ResultKind, cancellationToken);
+        var parsed = await ParseFilesAsync(files, ResultKind, cancellationToken, []);
         var dryRunErrors = parsed.Errors.ToList();
         var batch = new QaImportBatch
         {
@@ -172,14 +233,15 @@ public sealed class ManualImportService : IManualImportService
         return ToResponse(batch);
     }
 
-    private async Task<ParsedUpload> ParseFilesAsync(IReadOnlyList<IFormFile> files, string uploadKind, CancellationToken cancellationToken)
+    private async Task<ParsedUpload> ParseFilesAsync(IReadOnlyList<IFormFile> files, string uploadKind, CancellationToken cancellationToken, IReadOnlyList<string> selectedSheetNames)
     {
         var rows = new List<ParsedRow>();
         var errors = new List<QaImportBatchError>();
 
         foreach (var file in files)
         {
-            foreach (var sourceSheet in ParseSourceSheets(file))
+            var selected = selectedSheetNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var sourceSheet in ParseSourceSheets(file, selected))
             {
                 var records = sourceSheet.Records;
                 if (records.Count == 0) continue;
@@ -503,12 +565,12 @@ public sealed class ManualImportService : IManualImportService
         };
     }
 
-    private static IReadOnlyList<ParsedSheet> ParseSourceSheets(IFormFile file)
+    private static IReadOnlyList<ParsedSheet> ParseSourceSheets(IFormFile file, HashSet<string> selectedSheetNames)
     {
         var sourceName = Path.GetFileNameWithoutExtension(file.FileName);
         if (file.FileName.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase))
         {
-            return ParseXlsx(file.OpenReadStream());
+            return ParseXlsx(file.OpenReadStream(), selectedSheetNames);
         }
 
         return [new ParsedSheet(sourceName, ParseDelimited(file.OpenReadStream(), DetectDelimiter(file.FileName)))];
@@ -529,7 +591,7 @@ public sealed class ManualImportService : IManualImportService
         return rows;
     }
 
-    private static IReadOnlyList<ParsedSheet> ParseXlsx(Stream stream)
+    private static IReadOnlyList<ParsedSheet> ParseXlsx(Stream stream, HashSet<string> selectedSheetNames)
     {
         using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
         var sharedStrings = ReadSharedStrings(archive);
@@ -544,6 +606,7 @@ public sealed class ManualImportService : IManualImportService
         foreach (var sheet in workbook.Root!.Element(main + "sheets")!.Elements(main + "sheet"))
         {
             var name = sheet.Attribute("name")!.Value;
+            if (selectedSheetNames.Count > 0 && !selectedSheetNames.Contains(name)) continue;
             var relationshipId = sheet.Attribute(relNs + "id")!.Value;
             if (!relTargets.TryGetValue(relationshipId, out var target)) continue;
             var entryPath = "xl/" + target.TrimStart('/').Replace('\\', '/');
@@ -553,6 +616,51 @@ public sealed class ManualImportService : IManualImportService
         }
 
         return sheets;
+    }
+
+    private static IReadOnlyList<ImportInspectSheetResponse> InspectXlsx(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+        var workbook = XDocument.Load(archive.GetEntry("xl/workbook.xml")!.Open());
+        var rels = XDocument.Load(archive.GetEntry("xl/_rels/workbook.xml.rels")!.Open());
+        XNamespace main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        XNamespace relNs = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+        XNamespace packageRelNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+        var relTargets = rels.Root!.Elements(packageRelNs + "Relationship")
+            .ToDictionary(item => item.Attribute("Id")!.Value, item => item.Attribute("Target")!.Value);
+        var result = new List<ImportInspectSheetResponse>();
+        foreach (var sheet in workbook.Root!.Element(main + "sheets")!.Elements(main + "sheet"))
+        {
+            var name = sheet.Attribute("name")!.Value;
+            var visibility = (sheet.Attribute("state")?.Value ?? "visible") switch
+            {
+                "hidden" => "hidden",
+                "veryHidden" => "very_hidden",
+                "very_hidden" => "very_hidden",
+                _ => "visible"
+            };
+            var relationshipId = sheet.Attribute(relNs + "id")!.Value;
+            var rowCount = 0;
+            if (relTargets.TryGetValue(relationshipId, out var target))
+            {
+                var entry = archive.GetEntry("xl/" + target.TrimStart('/').Replace('\\', '/'));
+                if (entry != null)
+                {
+                    rowCount = EstimateRows(entry);
+                }
+            }
+            result.Add(new ImportInspectSheetResponse { SheetName = name, Visibility = visibility, RowCountEstimate = rowCount });
+        }
+
+        return result;
+    }
+
+    private static int EstimateRows(ZipArchiveEntry entry)
+    {
+        var document = XDocument.Load(entry.Open());
+        XNamespace main = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        return document.Descendants(main + "row").Count();
     }
 
     private static List<string> ReadSharedStrings(ZipArchive archive)
@@ -832,9 +940,62 @@ public sealed class ManualImportService : IManualImportService
     private static string NormalizeCell(string? value) => NormalizeText(value ?? string.Empty).Trim();
     private static readonly string[] KnownTestingTypes = ["Basic", "Mock", "Browser", "Regression", "Tomcat_Reg"];
 
+    private static string TempUploadDirectory() => Path.Combine(Path.GetTempPath(), "impact-testcaseviewer-imports");
+    private static string MetadataPath(string token) => Path.Combine(TempUploadDirectory(), $"{token}.json");
+
+    private static async Task<TempUploadMetadata?> ReadTempUploadAsync(string token, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return null;
+        var metadataPath = MetadataPath(token);
+        if (!File.Exists(metadataPath)) return null;
+        var metadata = JsonSerializer.Deserialize<TempUploadMetadata>(await File.ReadAllTextAsync(metadataPath, cancellationToken));
+        if (metadata == null || metadata.ExpiresAt < DateTimeOffset.UtcNow || !File.Exists(metadata.StoredPath))
+        {
+            if (metadata != null) DeleteTempUpload(metadata);
+            return null;
+        }
+        return metadata;
+    }
+
+    private static void DeleteTempUpload(TempUploadMetadata metadata)
+    {
+        TryDelete(metadata.StoredPath);
+        TryDelete(MetadataPath(metadata.Token));
+    }
+
+    private static void CleanupExpiredUploads()
+    {
+        var directory = TempUploadDirectory();
+        if (!Directory.Exists(directory)) return;
+        foreach (var metadataPath in Directory.EnumerateFiles(directory, "*.json"))
+        {
+            try
+            {
+                var metadata = JsonSerializer.Deserialize<TempUploadMetadata>(File.ReadAllText(metadataPath));
+                if (metadata == null || metadata.ExpiresAt < DateTimeOffset.UtcNow) DeleteTempUpload(metadata ?? new TempUploadMetadata { Token = Path.GetFileNameWithoutExtension(metadataPath) });
+            }
+            catch
+            {
+                TryDelete(metadataPath);
+            }
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (!string.IsNullOrWhiteSpace(path) && File.Exists(path)) File.Delete(path); } catch { }
+    }
+
     private sealed record ParsedUpload(IReadOnlyList<ParsedRow> Rows, IReadOnlyList<QaImportBatchError> Errors);
     private sealed record ParsedRow(QaRow Row, int SourceRowNumber);
     private sealed record ParsedSheet(string SourceName, List<List<string>> Records);
+    private sealed class TempUploadMetadata
+    {
+        public string Token { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public string StoredPath { get; set; } = string.Empty;
+        public DateTimeOffset ExpiresAt { get; set; }
+    }
 }
 
 file static class ImportSheetExtensions
