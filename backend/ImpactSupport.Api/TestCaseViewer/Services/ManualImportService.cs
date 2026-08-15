@@ -32,6 +32,7 @@ public sealed class ManualImportService : IManualImportService
         if (file.Length == 0) throw new ArgumentException("Upload file is empty.", nameof(file));
 
         var parsed = await ParseFilesAsync([file], MasterKind, cancellationToken);
+        var dryRunErrors = parsed.Errors.ToList();
         var existingSheets = await _dbContext.QaDashboardSheetCaches
             .AsNoTracking()
             .Where(sheet => sheet.FileId == MasterFileId || sheet.FileCache!.ReportType == MasterKind)
@@ -49,10 +50,10 @@ public sealed class ManualImportService : IManualImportService
             RowsError = parsed.Errors.Count
         };
 
-        BuildBatch(batch, parsed.Rows, parsed.Errors, existingSheetNames);
+        BuildBatch(batch, parsed.Rows, dryRunErrors, existingSheetNames);
         _dbContext.QaImportBatches.Add(batch);
         await _dbContext.SaveChangesAsync(cancellationToken);
-        return ToResponse(batch);
+        return ToResponse(batch, dryRunErrors);
     }
 
     public async Task<ImportBatchResponse> UploadResultsAsync(IReadOnlyList<IFormFile> files, string resultMode, AuthUser? user, CancellationToken cancellationToken = default)
@@ -61,6 +62,7 @@ public sealed class ManualImportService : IManualImportService
 
         var normalizedMode = resultMode.Equals("regression", StringComparison.OrdinalIgnoreCase) ? "regression" : "single";
         var parsed = await ParseFilesAsync(files, ResultKind, cancellationToken);
+        var dryRunErrors = parsed.Errors.ToList();
         var batch = new QaImportBatch
         {
             UploadKind = ResultKind,
@@ -71,10 +73,10 @@ public sealed class ManualImportService : IManualImportService
             RowsError = parsed.Errors.Count
         };
 
-        BuildBatch(batch, parsed.Rows, parsed.Errors, []);
+        BuildBatch(batch, parsed.Rows, dryRunErrors, []);
         _dbContext.QaImportBatches.Add(batch);
         await _dbContext.SaveChangesAsync(cancellationToken);
-        return ToResponse(batch);
+        return ToResponse(batch, dryRunErrors);
     }
 
     public async Task<ImportBatchResponse?> GetBatchAsync(int batchId, CancellationToken cancellationToken = default)
@@ -122,6 +124,7 @@ public sealed class ManualImportService : IManualImportService
         var batch = await LoadBatchAsync(batchId, cancellationToken);
         if (batch == null) return null;
         if (batch.Status == CommittedStatus) return ToResponse(batch);
+        if (batch.RowsError > 0) throw new InvalidOperationException("Resolve validation errors before commit.");
         if (batch.UploadKind == MasterKind && batch.Sheets.Any(sheet => sheet.ConflictStatus == ExistsStatus && !IsFinalAction(sheet.SelectedAction)))
         {
             throw new InvalidOperationException("Choose overwrite or skip for every existing sheet/page before commit.");
@@ -145,6 +148,14 @@ public sealed class ManualImportService : IManualImportService
                 .Cast<QaRow>()
                 .ToList();
             ApplyRows(sheet, rows, stagedSheet.ModuleName);
+            if (batch.UploadKind == MasterKind)
+            {
+                await ApplyMasterRowsAsync(rows, stagedSheet.SourceRowStart(), cancellationToken);
+            }
+            else
+            {
+                await ApplyTestingResultsAsync(batch, rows, cancellationToken);
+            }
             stagedSheet.SelectedAction = stagedSheet.ConflictStatus == ExistsStatus ? OverwriteAction : stagedSheet.SelectedAction;
             stagedSheet.ConflictStatus = CommittedStatus;
         }
@@ -202,10 +213,8 @@ public sealed class ManualImportService : IManualImportService
         return new ParsedUpload(rows, errors);
     }
 
-    private static void BuildBatch(QaImportBatch batch, IReadOnlyList<ParsedRow> parsedRows, IReadOnlyList<QaImportBatchError> errors, HashSet<string> existingSheetNames)
+    private static void BuildBatch(QaImportBatch batch, IReadOnlyList<ParsedRow> parsedRows, List<QaImportBatchError> errors, HashSet<string> existingSheetNames)
     {
-        foreach (var error in errors) batch.Errors.Add(error);
-
         var duplicateIds = parsedRows
             .GroupBy(item => item.Row.TestCaseId, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)
@@ -214,7 +223,7 @@ public sealed class ManualImportService : IManualImportService
 
         foreach (var duplicate in duplicateIds)
         {
-            batch.Errors.Add(new QaImportBatchError
+            errors.Add(new QaImportBatchError
             {
                 RowNumber = 0,
                 RawValue = duplicate,
@@ -258,15 +267,12 @@ public sealed class ManualImportService : IManualImportService
         batch.ExistingSheets = batch.Sheets.Count(sheet => sheet.ConflictStatus == ExistsStatus);
         batch.RowsAdded = batch.Sheets.Where(sheet => sheet.ConflictStatus == NewStatus).Sum(sheet => sheet.RowCount);
         batch.RowsUpdated = batch.Sheets.Where(sheet => sheet.ConflictStatus == ExistsStatus).Sum(sheet => sheet.RowCount);
-        batch.RowsError = batch.Errors.Count;
+        batch.RowsError = errors.Count;
     }
 
     private static QaRow ToQaRow(string fileName, IReadOnlyList<string> record, IReadOnlyDictionary<string, List<int>> map, string uploadKind)
     {
-        var sheetName = Get(record, map, "Sheet Name");
-        if (string.IsNullOrWhiteSpace(sheetName)) sheetName = Get(record, map, "SheetName");
-        if (sheetName.Trim() == "-") sheetName = string.Empty;
-        if (string.IsNullOrWhiteSpace(sheetName)) sheetName = Path.GetFileNameWithoutExtension(fileName);
+        var sheetName = Path.GetFileNameWithoutExtension(fileName);
 
         return new QaRow
         {
@@ -302,6 +308,10 @@ public sealed class ManualImportService : IManualImportService
         if (string.IsNullOrWhiteSpace(row.Module)) errors.Add("Module/Sub Module is required.");
         if (!string.IsNullOrWhiteSpace(row.TestCaseId) && row.TestCaseId.Length < 3) errors.Add("Test Case ID is malformed.");
         if (!PreconditionIsRecognized(row.Preconditions)) errors.Add($"Unrecognized Preconditions value: '{row.Preconditions}'");
+        foreach (var testingType in SplitTestingTypes(row.TestingType))
+        {
+            if (!KnownTestingTypes.Contains(testingType, StringComparer.OrdinalIgnoreCase)) errors.Add($"Unknown Type of testing value: '{testingType}'");
+        }
         return errors;
     }
 
@@ -374,7 +384,91 @@ public sealed class ManualImportService : IManualImportService
         sheet.LastMetadataSyncedAt = DateTimeOffset.UtcNow;
     }
 
-    private static ImportBatchResponse ToResponse(QaImportBatch batch)
+    private async Task ApplyMasterRowsAsync(IReadOnlyList<QaRow> rows, int sourceRowStart, CancellationToken cancellationToken)
+    {
+        foreach (var row in rows)
+        {
+            var module = await GetOrCreateModuleAsync(row.Module, cancellationToken);
+            var (roleId, clientId) = await ResolvePreconditionsAsync(row.Preconditions, cancellationToken);
+            var master = await _dbContext.MasterTemplates
+                .Include(item => item.Details)
+                .Include(item => item.TestingTypes)
+                .Include(item => item.Remarks)
+                .FirstOrDefaultAsync(item => item.MasterTestId == row.TestCaseId, cancellationToken);
+            if (master == null)
+            {
+                master = new MasterTemplate { MasterTestId = row.TestCaseId };
+                _dbContext.MasterTemplates.Add(master);
+            }
+
+            master.MasterTestNo = row.TestCaseNo;
+            master.MasterSourceSheet = row.SheetName;
+            master.MasterSourceRow = sourceRowStart;
+            master.MasterModules = module.Id;
+            master.MasterPreconditionRole = roleId;
+            master.MasterClient = clientId;
+            master.MasterPreparedBy = row.PreparedBy;
+            master.MasterPreparedDate = row.PreparedDate;
+            master.MasterTestData = NormalizeText(row.TestData);
+            master.MasterExpectedResult = NormalizeText(row.ExpectedResult);
+            master.MasterActualResult = NormalizeText(row.ActualResult);
+            master.MasterIssueType = await ResolveClosedLookupAsync(_dbContext.MasterIssueTypes, row.IssueType, cancellationToken);
+            master.MasterQaStatus = await ResolveClosedLookupAsync(_dbContext.MasterQaStatuses, row.QaStatus, cancellationToken);
+            master.MasterDevStatus = await ResolveClosedLookupAsync(_dbContext.MasterDevStatuses, row.DevStatus, cancellationToken);
+            master.MasterIsCollaborative = false;
+            master.MasterUpdatedAt = DateTimeOffset.UtcNow;
+            master.Details ??= new MasterTestDetails { MasterTemplate = master };
+            master.Details.MasterDescription = NormalizeText(row.Description);
+            master.Details.MasterTestSteps = NormalizeText(row.TestCases);
+            master.TestingTypes.Clear();
+            foreach (var typeId in await ResolveTestingTypeIdsAsync(row.TestingType, cancellationToken))
+            {
+                master.TestingTypes.Add(new MasterTemplateTestingType { TestingTypeId = typeId });
+            }
+
+            master.Remarks.Clear();
+            for (var i = 0; i < 4; i++)
+            {
+                var qa = i < row.QaRemarks.Count ? row.QaRemarks[i] : string.Empty;
+                var dev = i < row.DevRemarks.Count ? row.DevRemarks[i] : string.Empty;
+                if (string.IsNullOrWhiteSpace(qa) && string.IsNullOrWhiteSpace(dev)) continue;
+                master.Remarks.Add(new MasterTemplateRemark { RoundNumber = i + 1, QaRemark = qa, DevRemark = dev });
+            }
+        }
+    }
+
+    private async Task ApplyTestingResultsAsync(QaImportBatch batch, IReadOnlyList<QaRow> rows, CancellationToken cancellationToken)
+    {
+        var meta = new TestingMetaResult { Name = batch.FileName, RunThrough = "MANUAL" };
+        _dbContext.TestingMetaResults.Add(meta);
+        var moduleStats = new Dictionary<int, TestingMetaResultModuleStat>();
+        foreach (var row in rows)
+        {
+            var master = await _dbContext.MasterTemplates.AsNoTracking().FirstOrDefaultAsync(item => item.MasterTestId == row.TestCaseId, cancellationToken);
+            if (master == null) continue;
+            meta.DataResults.Add(new TestingDataResult
+            {
+                MasterTestId = row.TestCaseId,
+                MasterIssueType = await ResolveClosedLookupAsync(_dbContext.MasterIssueTypes, row.IssueType, cancellationToken),
+                MasterQaStatus = await ResolveClosedLookupAsync(_dbContext.MasterQaStatuses, row.QaStatus, cancellationToken),
+                MasterDevStatus = await ResolveClosedLookupAsync(_dbContext.MasterDevStatuses, row.DevStatus, cancellationToken)
+            });
+            if (master.MasterModules is int moduleId)
+            {
+                if (!moduleStats.TryGetValue(moduleId, out var stat))
+                {
+                    stat = new TestingMetaResultModuleStat { MasterModuleId = moduleId };
+                    moduleStats[moduleId] = stat;
+                }
+                if (row.QaStatus.Contains("pass", StringComparison.OrdinalIgnoreCase)) stat.PassCount++;
+                if (row.QaStatus.Contains("fail", StringComparison.OrdinalIgnoreCase)) stat.FailCount++;
+            }
+        }
+
+        foreach (var stat in moduleStats.Values) meta.ModuleStats.Add(stat);
+    }
+
+    private static ImportBatchResponse ToResponse(QaImportBatch batch, IReadOnlyList<QaImportBatchError>? transientErrors = null)
     {
         return new ImportBatchResponse
         {
@@ -390,6 +484,7 @@ public sealed class ManualImportService : IManualImportService
             SheetsDetected = batch.SheetsDetected,
             NewSheets = batch.NewSheets,
             ExistingSheets = batch.ExistingSheets,
+            Errors = (transientErrors ?? batch.Errors).Select(error => new ImportBatchErrorResponse { Id = error.Id, RowNumber = error.RowNumber, RawValue = error.RawValue, ErrorMessage = error.ErrorMessage }).ToList(),
             Sheets = batch.Sheets.OrderBy(sheet => sheet.SheetName).Select(sheet => new ImportBatchSheetResponse
             {
                 Id = sheet.Id,
@@ -551,6 +646,73 @@ public sealed class ManualImportService : IManualImportService
         return new[] { "Author", "PE", "Collator", "Editor" }.Any(role => role.Equals(roleText, StringComparison.OrdinalIgnoreCase));
     }
 
+    private async Task<MasterModule> GetOrCreateModuleAsync(string value, CancellationToken cancellationToken)
+    {
+        var normalized = value.Trim();
+        var module = await _dbContext.MasterModules.FirstOrDefaultAsync(item => item.Name == normalized, cancellationToken);
+        if (module != null) return module;
+        module = new MasterModule { Name = normalized };
+        _dbContext.MasterModules.Add(module);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return module;
+    }
+
+    private async Task<(int? RoleId, int? ClientId)> ResolvePreconditionsAsync(string value, CancellationToken cancellationToken)
+    {
+        var trimmed = value.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Equals("All user", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("All roles", StringComparison.OrdinalIgnoreCase)) return (null, null);
+        var role = trimmed;
+        string client = string.Empty;
+        var paren = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(.*?)\s*\(([A-Za-z0-9]+)\)\s*$");
+        if (paren.Success) { role = paren.Groups[1].Value; client = paren.Groups[2].Value; }
+        else if (trimmed.Contains('_')) { var parts = trimmed.Split('_', 2); role = parts[0]; client = parts[1]; }
+        role = System.Text.RegularExpressions.Regex.Replace(role, @"\s*role\s*$", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+        var roleId = await ResolveClosedLookupAsync(_dbContext.MasterPreconditionRoles, role, cancellationToken);
+        int? clientId = null;
+        if (!string.IsNullOrWhiteSpace(client))
+        {
+            var code = client.Trim().ToUpperInvariant();
+            var row = await _dbContext.Clients.FirstOrDefaultAsync(item => item.Code == code, cancellationToken);
+            if (row == null)
+            {
+                row = new Client { Code = code, Name = code };
+                _dbContext.Clients.Add(row);
+                await _dbContext.SaveChangesAsync(cancellationToken);
+            }
+            clientId = row.Id;
+        }
+        return (roleId, clientId);
+    }
+
+    private static async Task<int?> ResolveClosedLookupAsync<T>(DbSet<T> set, string value, CancellationToken cancellationToken) where T : class
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var property = typeof(T).GetProperty("Value") ?? typeof(T).GetProperty("Code") ?? typeof(T).GetProperty("Name");
+        var rows = await set.AsNoTracking().ToListAsync(cancellationToken);
+        var row = rows.FirstOrDefault(item => string.Equals(property?.GetValue(item)?.ToString(), value.Trim(), StringComparison.OrdinalIgnoreCase));
+        return row == null ? null : (int?)typeof(T).GetProperty("Id")!.GetValue(row);
+    }
+
+    private async Task<IReadOnlyList<int>> ResolveTestingTypeIdsAsync(string value, CancellationToken cancellationToken)
+    {
+        var ids = new List<int>();
+        foreach (var type in SplitTestingTypes(value))
+        {
+            var id = await ResolveClosedLookupAsync(_dbContext.MasterTestingTypes, type, cancellationToken);
+            if (id.HasValue) ids.Add(id.Value);
+        }
+        return ids;
+    }
+
+    private static IReadOnlyList<string> SplitTestingTypes(string value) => value.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    private static string NormalizeText(string value) => value.Replace("\r\n", "\n").Replace('\r', '\n');
+    private static readonly string[] KnownTestingTypes = ["Basic", "Mock", "Browser", "Regression", "Tomcat_Reg"];
+
     private sealed record ParsedUpload(IReadOnlyList<ParsedRow> Rows, IReadOnlyList<QaImportBatchError> Errors);
     private sealed record ParsedRow(QaRow Row, int SourceRowNumber);
+}
+
+file static class ImportSheetExtensions
+{
+    public static int SourceRowStart(this QaImportBatchSheet sheet) => sheet.Rows.OrderBy(row => row.SourceRowNumber).FirstOrDefault()?.SourceRowNumber ?? 0;
 }

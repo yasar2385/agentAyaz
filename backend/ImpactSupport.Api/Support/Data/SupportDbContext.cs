@@ -27,6 +27,27 @@ public sealed class SupportDbContext : DbContext
     public DbSet<TestRunExecution> TestRunExecutions => Set<TestRunExecution>();
     public DbSet<TestRunConfigWorkflowContext> TestRunConfigWorkflowContexts => Set<TestRunConfigWorkflowContext>();
     public DbSet<TestRunProgress> TestRunProgresses => Set<TestRunProgress>();
+    public DbSet<MasterTemplate> MasterTemplates => Set<MasterTemplate>();
+    public DbSet<MasterTestDetails> MasterTestDetails => Set<MasterTestDetails>();
+    public DbSet<MasterModule> MasterModules => Set<MasterModule>();
+    public DbSet<MasterPreconditionRole> MasterPreconditionRoles => Set<MasterPreconditionRole>();
+    public DbSet<MasterTestingType> MasterTestingTypes => Set<MasterTestingType>();
+    public DbSet<MasterIssueType> MasterIssueTypes => Set<MasterIssueType>();
+    public DbSet<MasterQaStatus> MasterQaStatuses => Set<MasterQaStatus>();
+    public DbSet<MasterDevStatus> MasterDevStatuses => Set<MasterDevStatus>();
+    public DbSet<Client> Clients => Set<Client>();
+    public DbSet<RefStyle> RefStyles => Set<RefStyle>();
+    public DbSet<RoleWorkflow> RoleWorkflows => Set<RoleWorkflow>();
+    public DbSet<ContentType> Types => Set<ContentType>();
+    public DbSet<DtdType> DtdTypes => Set<DtdType>();
+    public DbSet<TestingUrl> TestingUrls => Set<TestingUrl>();
+    public DbSet<MasterTemplateTestingType> MasterTemplateTestingTypes => Set<MasterTemplateTestingType>();
+    public DbSet<MasterTemplateRemark> MasterTemplateRemarks => Set<MasterTemplateRemark>();
+    public DbSet<TestingMetaResult> TestingMetaResults => Set<TestingMetaResult>();
+    public DbSet<TestingMetaResultLink> TestingMetaResultLinks => Set<TestingMetaResultLink>();
+    public DbSet<TestingMetaResultTestingType> TestingMetaResultTestingTypes => Set<TestingMetaResultTestingType>();
+    public DbSet<TestingMetaResultModuleStat> TestingMetaResultModuleStats => Set<TestingMetaResultModuleStat>();
+    public DbSet<TestingDataResult> TestingDataResults => Set<TestingDataResult>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -281,5 +302,134 @@ public sealed class SupportDbContext : DbContext
                 .HasForeignKey(x => x.LastExecutionId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
+
+        ConfigureMasterTestingSchema(modelBuilder);
+    }
+
+    private static void ConfigureMasterTestingSchema(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MasterTemplate>(entity =>
+        {
+            entity.ToTable("MasterTemplate");
+            entity.HasKey(x => x.MasterId);
+            entity.HasIndex(x => x.MasterTestId).IsUnique();
+            entity.Property(x => x.MasterTestId).IsRequired();
+            entity.Property(x => x.MasterTestNo).IsRequired();
+            entity.Property(x => x.MasterSourceSheet).IsRequired();
+            entity.Property(x => x.MasterPreparedBy).IsRequired();
+            entity.Property(x => x.MasterPreparedDate).IsRequired();
+            entity.Property(x => x.MasterTestData).IsRequired();
+            entity.Property(x => x.MasterExpectedResult).IsRequired();
+            entity.Property(x => x.MasterActualResult).IsRequired();
+        });
+
+        modelBuilder.Entity<MasterTestDetails>(entity =>
+        {
+            entity.ToTable("MasterTestDetails");
+            entity.HasKey(x => x.MasterId);
+            entity.Property(x => x.MasterDescription).IsRequired();
+            entity.Property(x => x.MasterTestSteps).IsRequired();
+            entity.HasOne(x => x.MasterTemplate).WithOne(x => x.Details).HasForeignKey<MasterTestDetails>(x => x.MasterId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        ConfigureLookup(modelBuilder.Entity<MasterModule>(), "MasterModules", x => x.Name);
+        ConfigureLookup(modelBuilder.Entity<MasterPreconditionRole>(), "MasterPreconditionRoles", x => x.Value);
+        ConfigureLookup(modelBuilder.Entity<MasterTestingType>(), "MasterTestingTypes", x => x.Value);
+        ConfigureLookup(modelBuilder.Entity<MasterIssueType>(), "MasterIssueTypes", x => x.Value);
+        ConfigureLookup(modelBuilder.Entity<MasterQaStatus>(), "MasterQaStatuses", x => x.Value);
+        ConfigureLookup(modelBuilder.Entity<MasterDevStatus>(), "MasterDevStatuses", x => x.Value);
+        ConfigureLookup(modelBuilder.Entity<Client>(), "Clients", x => x.Code);
+        ConfigureLookup(modelBuilder.Entity<RefStyle>(), "RefStyles", x => x.Value);
+        ConfigureLookup(modelBuilder.Entity<ContentType>(), "Types", x => x.Value);
+        ConfigureLookup(modelBuilder.Entity<DtdType>(), "DtdType", x => x.Value);
+
+        modelBuilder.Entity<RoleWorkflow>(entity =>
+        {
+            entity.ToTable("RoleWorkflows");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.Value).IsUnique();
+            entity.Property(x => x.Value).IsRequired();
+            entity.HasData(
+                new RoleWorkflow { Id = 1, Value = "Author_Editor_Collator", IsDefault = true },
+                new RoleWorkflow { Id = 2, Value = "Editor_Author_Collator" },
+                new RoleWorkflow { Id = 3, Value = "Author_Collator" },
+                new RoleWorkflow { Id = 4, Value = "Editor_Collator" });
+        });
+
+        modelBuilder.Entity<TestingUrl>(entity =>
+        {
+            entity.ToTable("TestingUrls");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.Value).IsUnique();
+            entity.Property(x => x.Value).IsRequired();
+            entity.Property(x => x.UrlType).IsRequired();
+            entity.HasData(
+                new TestingUrl { Id = 1, Value = "author", UrlType = "single" },
+                new TestingUrl { Id = 2, Value = "editor", UrlType = "single" },
+                new TestingUrl { Id = 3, Value = "collator", UrlType = "single" },
+                new TestingUrl { Id = 4, Value = "shared_author", UrlType = "multi_author" },
+                new TestingUrl { Id = 5, Value = "shared_editor", UrlType = "multi_author" },
+                new TestingUrl { Id = 6, Value = "shared_collator", UrlType = "multi_author" });
+        });
+
+        modelBuilder.Entity<MasterTestingType>().HasData(
+            new MasterTestingType { Id = 1, Value = "Basic" },
+            new MasterTestingType { Id = 2, Value = "Mock" },
+            new MasterTestingType { Id = 3, Value = "Browser" },
+            new MasterTestingType { Id = 4, Value = "Regression" },
+            new MasterTestingType { Id = 5, Value = "Tomcat_Reg" });
+        modelBuilder.Entity<ContentType>().HasData(new ContentType { Id = 1, Value = "Journal" }, new ContentType { Id = 2, Value = "Book" });
+        modelBuilder.Entity<DtdType>().HasData(new DtdType { Id = 1, Value = "JATS" }, new DtdType { Id = 2, Value = "BITS" }, new DtdType { Id = 3, Value = "DOCBOOK" });
+        modelBuilder.Entity<MasterPreconditionRole>().HasData(new MasterPreconditionRole { Id = 1, Value = "Author" }, new MasterPreconditionRole { Id = 2, Value = "PE" }, new MasterPreconditionRole { Id = 3, Value = "Collator" }, new MasterPreconditionRole { Id = 4, Value = "Editor" });
+        modelBuilder.Entity<MasterIssueType>().HasData(new MasterIssueType { Id = 1, Value = "Bug" }, new MasterIssueType { Id = 2, Value = "Change Request" }, new MasterIssueType { Id = 3, Value = "Enhancement" });
+        modelBuilder.Entity<MasterQaStatus>().HasData(new MasterQaStatus { Id = 1, Value = "Pass" }, new MasterQaStatus { Id = 2, Value = "Fail" }, new MasterQaStatus { Id = 3, Value = "Fixed" }, new MasterQaStatus { Id = 4, Value = "Rejected" }, new MasterQaStatus { Id = 5, Value = "WIP" });
+        modelBuilder.Entity<MasterDevStatus>().HasData(new MasterDevStatus { Id = 1, Value = "Fixed" }, new MasterDevStatus { Id = 2, Value = "Rejected" }, new MasterDevStatus { Id = 3, Value = "WIP" }, new MasterDevStatus { Id = 4, Value = "Open" });
+
+        modelBuilder.Entity<MasterTemplateTestingType>(entity =>
+        {
+            entity.ToTable("MasterTemplateTestingTypes");
+            entity.HasKey(x => new { x.MasterId, x.TestingTypeId });
+            entity.HasOne(x => x.MasterTemplate).WithMany(x => x.TestingTypes).HasForeignKey(x => x.MasterId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<MasterTemplateRemark>(entity =>
+        {
+            entity.ToTable("MasterTemplateRemarks");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.QaRemark).IsRequired();
+            entity.Property(x => x.DevRemark).IsRequired();
+            entity.HasOne(x => x.MasterTemplate).WithMany(x => x.Remarks).HasForeignKey(x => x.MasterId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TestingMetaResult>(entity =>
+        {
+            entity.ToTable("TestingMetaResults");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Name).IsRequired();
+            entity.Property(x => x.RunThrough).IsRequired();
+        });
+        modelBuilder.Entity<TestingMetaResultLink>().ToTable("TestingMetaResultLinks").HasKey(x => new { x.TestingMetaResultId, x.RoleId });
+        modelBuilder.Entity<TestingMetaResultTestingType>().ToTable("TestingMetaResultTestingTypes").HasKey(x => new { x.TestingMetaResultId, x.TestingTypeId });
+        modelBuilder.Entity<TestingMetaResultModuleStat>(entity =>
+        {
+            entity.ToTable("TestingMetaResultModuleStats");
+            entity.HasKey(x => new { x.TestingMetaResultId, x.MasterModuleId });
+            entity.HasOne(x => x.TestingMetaResult).WithMany(x => x.ModuleStats).HasForeignKey(x => x.TestingMetaResultId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<TestingDataResult>(entity =>
+        {
+            entity.ToTable("TestingDataResults");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.MasterTestId).IsRequired();
+            entity.HasOne(x => x.TestingMetaResult).WithMany(x => x.DataResults).HasForeignKey(x => x.TestingMetaResultId).OnDelete(DeleteBehavior.Cascade);
+        });
+    }
+
+    private static void ConfigureLookup<TEntity>(Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<TEntity> entity, string tableName, System.Linq.Expressions.Expression<Func<TEntity, object?>> uniqueProperty)
+        where TEntity : class
+    {
+        entity.ToTable(tableName);
+        entity.HasKey("Id");
+        entity.HasIndex(uniqueProperty).IsUnique();
+        entity.Property(uniqueProperty).IsRequired();
     }
 }

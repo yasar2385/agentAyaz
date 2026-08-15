@@ -15,6 +15,7 @@ public sealed class ImportBatchResponse
     public int NewSheets { get; set; }
     public int ExistingSheets { get; set; }
     public IReadOnlyList<ImportBatchSheetResponse> Sheets { get; set; } = [];
+    public IReadOnlyList<ImportBatchErrorResponse> Errors { get; set; } = [];
 }
 
 public sealed class ImportBatchSheetResponse

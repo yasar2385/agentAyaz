@@ -343,7 +343,7 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
       setMasterBatch(batch)
       setResultBatch(null)
       setAckErrors(false)
-      setErrors(batch.rowsError ? await getImportErrors(batch.batchId, user) : [])
+      setErrors(batch.errors ?? (batch.rowsError ? await getImportErrors(batch.batchId, user) : []))
       setMessage('Master upload dry-run is ready.')
     })
   }
@@ -356,7 +356,7 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
       setResultBatch(batch)
       setMasterBatch(null)
       setAckErrors(false)
-      setErrors(batch.rowsError ? await getImportErrors(batch.batchId, user) : [])
+      setErrors(batch.errors ?? (batch.rowsError ? await getImportErrors(batch.batchId, user) : []))
       setMessage('Result upload dry-run is ready.')
     })
   }
@@ -405,8 +405,8 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
   const unresolvedMasterConflicts = (masterBatch?.sheets ?? [])
     .filter(sheet => sheet.conflictStatus === 'EXISTS')
     .some(sheet => !['OVERWRITE', 'SKIP'].includes(sheet.selectedAction))
-  const canCommitMaster = masterBatch && masterBatch.status !== 'COMMITTED' && !unresolvedMasterConflicts && (!hasErrors || ackErrors)
-  const canCommitResult = resultBatch && resultBatch.status !== 'COMMITTED' && (!hasErrors || ackErrors)
+  const canCommitMaster = masterBatch && masterBatch.status !== 'COMMITTED' && !unresolvedMasterConflicts && !hasErrors
+  const canCommitResult = resultBatch && resultBatch.status !== 'COMMITTED' && !hasErrors
 
   return (
     <section className="manual-upload-panel">
