@@ -46,6 +46,7 @@ public sealed class SupportDbContext : DbContext
     public DbSet<MasterTemplateTestingType> MasterTemplateTestingTypes => Set<MasterTemplateTestingType>();
     public DbSet<MasterTemplateClient> MasterTemplateClients => Set<MasterTemplateClient>();
     public DbSet<MasterTemplateRemark> MasterTemplateRemarks => Set<MasterTemplateRemark>();
+    public DbSet<MasterTemplateEditHistory> MasterTemplateEditHistory => Set<MasterTemplateEditHistory>();
     public DbSet<TestingMetaResult> TestingMetaResults => Set<TestingMetaResult>();
     public DbSet<TestingMetaResultLink> TestingMetaResultLinks => Set<TestingMetaResultLink>();
     public DbSet<TestingMetaResultTestingType> TestingMetaResultTestingTypes => Set<TestingMetaResultTestingType>();
@@ -178,6 +179,8 @@ public sealed class SupportDbContext : DbContext
             entity.HasKey(x => x.Id);
             entity.Property(x => x.TestCaseId).IsRequired();
             entity.Property(x => x.OriginalRawTestCaseId);
+            entity.Property(x => x.ManualEditAction).IsRequired();
+            entity.Property(x => x.ManualEditLastEditedBy).IsRequired();
             entity.Property(x => x.RowJson).IsRequired();
             entity.HasIndex(x => new { x.ImportBatchId, x.TestCaseId }).IsUnique();
 
@@ -326,6 +329,7 @@ public sealed class SupportDbContext : DbContext
             entity.Property(x => x.MasterTestData).IsRequired();
             entity.Property(x => x.MasterExpectedResult).IsRequired();
             entity.Property(x => x.MasterActualResult).IsRequired();
+            entity.Property(x => x.MasterUpdatedBy);
         });
 
         modelBuilder.Entity<MasterTestDetails>(entity =>
@@ -430,6 +434,17 @@ public sealed class SupportDbContext : DbContext
             entity.Property(x => x.QaRemark).IsRequired();
             entity.Property(x => x.DevRemark).IsRequired();
             entity.HasOne(x => x.MasterTemplate).WithMany(x => x.Remarks).HasForeignKey(x => x.MasterId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<MasterTemplateEditHistory>(entity =>
+        {
+            entity.ToTable("MasterTemplateEditHistory");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.FieldName).IsRequired();
+            entity.Property(x => x.OldValue).IsRequired();
+            entity.Property(x => x.NewValue).IsRequired();
+            entity.Property(x => x.EditedBy).IsRequired();
+            entity.HasIndex(x => new { x.MasterId, x.EditedAt });
+            entity.HasOne(x => x.MasterTemplate).WithMany(x => x.EditHistory).HasForeignKey(x => x.MasterId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<TestingMetaResult>(entity =>

@@ -485,6 +485,9 @@ namespace ImpactSupport.Api.Migrations
                     b.Property<int?>("MasterModules")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("MasterOriginalRawId")
+                        .HasColumnType("TEXT");
+
                     b.Property<int?>("MasterPreconditionRole")
                         .HasColumnType("INTEGER");
 
@@ -502,7 +505,7 @@ namespace ImpactSupport.Api.Migrations
                     b.Property<int?>("MasterRoleWorkflow")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("MasterOriginalRawId")
+                    b.Property<string>("MasterUpdatedBy")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("MasterSourceRow")
@@ -536,6 +539,41 @@ namespace ImpactSupport.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("MasterTemplate", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateEditHistory", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset>("EditedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EditedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FieldName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MasterId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NewValue")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OldValue")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MasterId", "EditedAt");
+
+                    b.ToTable("MasterTemplateEditHistory", (string)null);
                 });
 
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateClient", b =>
@@ -980,6 +1018,20 @@ namespace ImpactSupport.Api.Migrations
 
                     b.Property<int>("ImportBatchSheetId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("ManualEditAction")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ManualEditConflict")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ManualEditLastEditedBy")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("ManualEditLastEditedAt")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("OriginalRawTestCaseId")
                         .HasColumnType("TEXT");
@@ -1561,6 +1613,17 @@ namespace ImpactSupport.Api.Migrations
                 {
                     b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplate", "MasterTemplate")
                         .WithMany("Clients")
+                        .HasForeignKey("MasterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MasterTemplate");
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateEditHistory", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplate", "MasterTemplate")
+                        .WithMany("EditHistory")
                         .HasForeignKey("MasterId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

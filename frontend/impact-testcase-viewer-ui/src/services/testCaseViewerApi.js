@@ -144,8 +144,39 @@ export async function saveMasterSheetActions(batchId, actions, user = null) {
   );
 }
 
+export async function saveManualEditImportActions(batchId, actions, user = null) {
+  return postJson(
+    `/api/testcaseviewer/import/master/${encodeURIComponent(batchId)}/manual-edit-actions`,
+    { actions },
+    'Failed to save manual edit conflict actions',
+    user,
+  );
+}
+
 export async function commitImportBatch(batchId, user = null) {
   return postJson(`/api/testcaseviewer/import/${encodeURIComponent(batchId)}/commit`, {}, 'Failed to commit import', user);
+}
+
+export async function getMasterReviewModules(user = null) {
+  return getJson('/api/testcaseviewer/master/modules', 'Failed to fetch master modules', user);
+}
+
+export async function getMasterReviewList(moduleId, page = 1, pageSize = 25, user = null) {
+  const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (moduleId) query.set('moduleId', String(moduleId));
+  return getJson(`/api/testcaseviewer/master?${query.toString()}`, 'Failed to fetch master test cases', user);
+}
+
+export async function getMasterReviewLookups(user = null) {
+  return getJson('/api/testcaseviewer/master/lookups', 'Failed to fetch master lookups', user);
+}
+
+export async function getMasterReviewDetail(masterTestId, user = null) {
+  return getJson(`/api/testcaseviewer/master/${encodeURIComponent(masterTestId)}`, 'Failed to fetch master test case', user);
+}
+
+export async function updateMasterReviewDetail(masterTestId, payload, user = null) {
+  return putJson(`/api/testcaseviewer/master/${encodeURIComponent(masterTestId)}`, payload, 'Failed to save master test case', user);
 }
 
 export async function getPlaywrightReadiness(user = null) {

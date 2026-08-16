@@ -124,6 +124,7 @@ namespace ImpactSupport.Api.Migrations
                     MasterId = table.Column<int>(type: "INTEGER", nullable: false)
                         .Annotation("Sqlite:Autoincrement", true),
                     MasterTestId = table.Column<string>(type: "TEXT", nullable: false),
+                    MasterOriginalRawId = table.Column<string>(type: "TEXT", nullable: true),
                     MasterTestNo = table.Column<string>(type: "TEXT", nullable: false),
                     MasterSourceSheet = table.Column<string>(type: "TEXT", nullable: false),
                     MasterSourceRow = table.Column<int>(type: "INTEGER", nullable: false),
@@ -761,6 +762,7 @@ namespace ImpactSupport.Api.Migrations
                     ImportBatchSheetId = table.Column<int>(type: "INTEGER", nullable: false),
                     SourceRowNumber = table.Column<int>(type: "INTEGER", nullable: false),
                     TestCaseId = table.Column<string>(type: "TEXT", nullable: false),
+                    OriginalRawTestCaseId = table.Column<string>(type: "TEXT", nullable: true),
                     RowJson = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>

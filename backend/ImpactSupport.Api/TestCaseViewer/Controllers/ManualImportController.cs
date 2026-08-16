@@ -72,6 +72,13 @@ public sealed class ManualImportController : ControllerBase
         return batch == null ? NotFound() : Ok(batch);
     }
 
+    [HttpPost("master/{batchId:int}/manual-edit-actions")]
+    public async Task<IActionResult> SaveManualEditActions(int batchId, ManualEditActionRequest request, CancellationToken cancellationToken)
+    {
+        var batch = await _importService.SaveManualEditActionsAsync(batchId, request, cancellationToken);
+        return batch == null ? NotFound() : Ok(batch);
+    }
+
     [HttpPost("{batchId:int}/commit")]
     public async Task<IActionResult> Commit(int batchId, CancellationToken cancellationToken)
     {

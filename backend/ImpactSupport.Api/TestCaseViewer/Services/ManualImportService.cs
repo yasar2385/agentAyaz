@@ -20,6 +20,7 @@ public sealed class ManualImportService : IManualImportService
     private const string ExistsStatus = "EXISTS";
     private const string OverwriteAction = "OVERWRITE";
     private const string SkipAction = "SKIP";
+    private const string SkipRowAction = "SKIP_ROW";
     private const string MasterFileId = "manual-master";
     private static readonly TimeSpan UploadTokenTtl = TimeSpan.FromMinutes(30);
 
@@ -115,6 +116,7 @@ public sealed class ManualImportService : IManualImportService
 
         var existingTestCaseIds = await _dbContext.MasterTemplates.AsNoTracking().Select(item => item.MasterTestId).ToListAsync(cancellationToken);
         BuildBatch(batch, parsed.Rows, dryRunErrors, existingSheetNames, resolveDuplicateIds: true, existingTestCaseIds);
+        await MarkManualEditConflictsAsync(batch, cancellationToken);
         _dbContext.QaImportBatches.Add(batch);
         await _dbContext.SaveChangesAsync(cancellationToken);
         return ToResponse(batch, dryRunErrors);
@@ -183,6 +185,24 @@ public sealed class ManualImportService : IManualImportService
         return ToResponse(batch);
     }
 
+    public async Task<ImportBatchResponse?> SaveManualEditActionsAsync(int batchId, ManualEditActionRequest request, CancellationToken cancellationToken = default)
+    {
+        var batch = await LoadBatchAsync(batchId, cancellationToken);
+        if (batch == null || batch.Status == CommittedStatus) return batch == null ? null : ToResponse(batch);
+
+        var actions = request.Actions.ToDictionary(item => item.RowId, item => NormalizeManualEditAction(item.Action));
+        foreach (var row in batch.Rows.Where(row => row.ManualEditConflict))
+        {
+            if (actions.TryGetValue(row.Id, out var action))
+            {
+                row.ManualEditAction = action;
+            }
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return ToResponse(batch);
+    }
+
     public async Task<ImportBatchResponse?> CommitAsync(int batchId, CancellationToken cancellationToken = default)
     {
         var batch = await LoadBatchAsync(batchId, cancellationToken);
@@ -192,6 +212,10 @@ public sealed class ManualImportService : IManualImportService
         if (batch.UploadKind == MasterKind && batch.Sheets.Any(sheet => sheet.ConflictStatus == ExistsStatus && !IsFinalAction(sheet.SelectedAction)))
         {
             throw new InvalidOperationException("Choose overwrite or skip for every existing sheet/page before commit.");
+        }
+        if (batch.UploadKind == MasterKind && batch.Rows.Any(row => row.ManualEditConflict && !IsFinalManualEditAction(row.ManualEditAction)))
+        {
+            throw new InvalidOperationException("Choose overwrite or skip row for every manually edited test case before commit.");
         }
 
         var fileCache = await UpsertFileAsync(batch.UploadKind == ResultKind ? "regression" : MasterKind, GetFileId(batch), batch.FileName, cancellationToken);
@@ -205,7 +229,10 @@ public sealed class ManualImportService : IManualImportService
             }
 
             var sheet = UpsertSheet(fileCache, stagedSheet.SheetName);
+            var skippedRows = stagedSheet.Rows.Count(row => row.ManualEditConflict && row.ManualEditAction == SkipRowAction);
+            batch.RowsSkipped += skippedRows;
             var rows = stagedSheet.Rows
+                .Where(row => !(row.ManualEditConflict && row.ManualEditAction == SkipRowAction))
                 .OrderBy(row => row.SourceRowNumber)
                 .Select(row => JsonSerializer.Deserialize<QaRow>(row.RowJson))
                 .Where(row => row != null)
@@ -383,6 +410,27 @@ public sealed class ManualImportService : IManualImportService
                 occurrences[i].Row.OriginalRawTestCaseId = rawId;
                 usedIds.Add(resolvedId);
             }
+        }
+    }
+
+    private async Task MarkManualEditConflictsAsync(QaImportBatch batch, CancellationToken cancellationToken)
+    {
+        var ids = batch.Rows.Select(row => row.TestCaseId).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (ids.Count == 0) return;
+
+        var editedRows = await _dbContext.MasterTemplates
+            .AsNoTracking()
+            .Where(master => ids.Contains(master.MasterTestId) && !string.IsNullOrWhiteSpace(master.MasterUpdatedBy))
+            .Select(master => new { master.MasterTestId, master.MasterUpdatedBy, master.MasterUpdatedAt })
+            .ToListAsync(cancellationToken);
+        var editedById = editedRows.ToDictionary(item => item.MasterTestId, StringComparer.OrdinalIgnoreCase);
+        foreach (var row in batch.Rows)
+        {
+            if (!editedById.TryGetValue(row.TestCaseId, out var existing)) continue;
+            row.ManualEditConflict = true;
+            row.ManualEditAction = string.Empty;
+            row.ManualEditLastEditedBy = existing.MasterUpdatedBy ?? string.Empty;
+            row.ManualEditLastEditedAt = existing.MasterUpdatedAt;
         }
     }
 
@@ -635,6 +683,21 @@ public sealed class ManualImportService : IManualImportService
             ExistingSheets = batch.ExistingSheets,
             Errors = (transientErrors ?? batch.Errors).Select(error => new ImportBatchErrorResponse { Id = error.Id, RowNumber = error.RowNumber, RawValue = error.RawValue, ErrorMessage = error.ErrorMessage }).ToList(),
             DuplicateIdsResolved = DuplicateIdResponses(batch),
+            ManualEditConflicts = batch.Rows
+                .Where(row => row.ManualEditConflict)
+                .OrderBy(row => row.ImportBatchSheet?.SheetName)
+                .ThenBy(row => row.SourceRowNumber)
+                .Select(row => new ManualEditConflictResponse
+                {
+                    RowId = row.Id,
+                    MasterTestId = row.TestCaseId,
+                    SheetName = row.ImportBatchSheet?.SheetName ?? string.Empty,
+                    SourceRowNumber = row.SourceRowNumber,
+                    LastEditedBy = row.ManualEditLastEditedBy,
+                    LastEditedAt = row.ManualEditLastEditedAt,
+                    SelectedAction = row.ManualEditAction
+                })
+                .ToList(),
             Sheets = batch.Sheets.OrderBy(sheet => sheet.SheetName).Select(sheet => new ImportBatchSheetResponse
             {
                 Id = sheet.Id,
@@ -965,9 +1028,21 @@ public sealed class ManualImportService : IManualImportService
         return action.Equals(SkipAction, StringComparison.OrdinalIgnoreCase) ? SkipAction : OverwriteAction;
     }
 
+    private static string NormalizeManualEditAction(string action)
+    {
+        if (action.Equals(OverwriteAction, StringComparison.OrdinalIgnoreCase)) return OverwriteAction;
+        if (action.Equals(SkipRowAction, StringComparison.OrdinalIgnoreCase)) return SkipRowAction;
+        return string.Empty;
+    }
+
     private static bool IsFinalAction(string action)
     {
         return action == OverwriteAction || action == SkipAction;
+    }
+
+    private static bool IsFinalManualEditAction(string action)
+    {
+        return action == OverwriteAction || action == SkipRowAction;
     }
 
     private static bool PreconditionIsRecognized(string value)

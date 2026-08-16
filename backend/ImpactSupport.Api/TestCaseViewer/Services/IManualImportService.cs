@@ -11,5 +11,6 @@ public interface IManualImportService
     Task<ImportBatchResponse?> GetBatchAsync(int batchId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ImportBatchErrorResponse>> GetErrorsAsync(int batchId, CancellationToken cancellationToken = default);
     Task<ImportBatchResponse?> SaveSheetActionsAsync(int batchId, SheetActionRequest request, CancellationToken cancellationToken = default);
+    Task<ImportBatchResponse?> SaveManualEditActionsAsync(int batchId, ManualEditActionRequest request, CancellationToken cancellationToken = default);
     Task<ImportBatchResponse?> CommitAsync(int batchId, CancellationToken cancellationToken = default);
 }

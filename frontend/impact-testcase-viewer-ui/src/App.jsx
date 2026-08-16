@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import {
   getDashboardCache,
@@ -18,7 +18,13 @@ import {
   uploadResultImport,
   getImportErrors,
   saveMasterSheetActions,
+  saveManualEditImportActions,
   commitImportBatch,
+  getMasterReviewModules,
+  getMasterReviewList,
+  getMasterReviewLookups,
+  getMasterReviewDetail,
+  updateMasterReviewDetail,
   getPlaywrightReadiness,
   getRunMetadata,
   getRunConfigs,
@@ -50,6 +56,7 @@ const SOURCE_MODES = {
   local: 'local',
   hybrid: 'hybrid',
   manual: 'manual',
+  reviewEdit: 'reviewEdit',
   playwright: 'playwright',
   startTesting: 'startTesting',
 }
@@ -418,6 +425,19 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
     })
   }
 
+  async function updateManualEditAction(rowId, action) {
+    if (!masterBatch) return
+    const actions = (masterBatch.manualEditConflicts ?? []).map(conflict => ({
+      rowId: conflict.rowId,
+      action: conflict.rowId === rowId ? action : conflict.selectedAction,
+    }))
+    await runImport(async () => {
+      const batch = await saveManualEditImportActions(masterBatch.batchId, actions, user)
+      setMasterBatch(batch)
+      setMessage('Manual edit conflict action saved.')
+    })
+  }
+
   async function commitBatch(batch) {
     if (!batch) return
     await runImport(async () => {
@@ -440,7 +460,9 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
   const unresolvedMasterConflicts = (masterBatch?.sheets ?? [])
     .filter(sheet => sheet.conflictStatus === 'EXISTS')
     .some(sheet => !['OVERWRITE', 'SKIP'].includes(sheet.selectedAction))
-  const canCommitMaster = masterBatch && masterBatch.status !== 'COMMITTED' && !unresolvedMasterConflicts && !hasErrors
+  const unresolvedManualEditConflicts = (masterBatch?.manualEditConflicts ?? [])
+    .some(conflict => !['OVERWRITE', 'SKIP_ROW'].includes(conflict.selectedAction))
+  const canCommitMaster = masterBatch && masterBatch.status !== 'COMMITTED' && !unresolvedMasterConflicts && !unresolvedManualEditConflicts && !hasErrors
   const canCommitResult = resultBatch && resultBatch.status !== 'COMMITTED' && !hasErrors
 
   return (
@@ -596,6 +618,45 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
           <button type="button" onClick={() => commitBatch(masterBatch)} disabled={loading || !canCommitMaster}>
             Commit master import
           </button>
+        </section>
+      )}
+
+      {masterBatch && (masterBatch.manualEditConflicts?.length ?? 0) > 0 && (
+        <section className="upload-review">
+          <div className="section-heading">
+            <h2>Manual Edit Conflicts</h2>
+            <span>Row-level review</span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Row</th>
+                  <th>Sheet/Page</th>
+                  <th>Test Case ID</th>
+                  <th>Last edited</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {masterBatch.manualEditConflicts.map(conflict => (
+                  <tr key={conflict.rowId}>
+                    <td>{conflict.sourceRowNumber}</td>
+                    <td>{conflict.sheetName}</td>
+                    <td>{conflict.masterTestId}</td>
+                    <td>{conflict.lastEditedBy || 'Manual edit'} {conflict.lastEditedAt ? new Date(conflict.lastEditedAt).toLocaleString() : ''}</td>
+                    <td>
+                      <select value={conflict.selectedAction} onChange={event => updateManualEditAction(conflict.rowId, event.target.value)} disabled={loading || masterBatch.status === 'COMMITTED'}>
+                        <option value="">Choose</option>
+                        <option value="OVERWRITE">Overwrite</option>
+                        <option value="SKIP_ROW">Skip row</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

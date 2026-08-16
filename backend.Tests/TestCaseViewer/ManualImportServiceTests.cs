@@ -307,6 +307,33 @@ public sealed class ManualImportServiceTests
         Assert.Empty(authorWildcard.Clients);
     }
 
+    [Fact]
+    public async Task UploadMasterAsync_ManualEditConflictRequiresRowActionAndCanSkipRow()
+    {
+        await using var db = CreateDbContext();
+        db.MasterTemplates.Add(new MasterTemplate { MasterTestId = "TC_MANUAL_001", MasterUpdatedBy = "QA User", MasterUpdatedAt = DateTimeOffset.UtcNow });
+        await db.SaveChangesAsync();
+        var service = new ManualImportService(db);
+
+        var batch = await service.UploadMasterAsync(File("manual.tsv", Tsv(
+            ["Test Case ID", "Module/Sub Module", "QA Status"],
+            ["TC_MANUAL_001", "Contact Support", "Fail"],
+            ["TC_MANUAL_002", "Contact Support", "Pass"])), null);
+
+        var conflict = Assert.Single(batch.ManualEditConflicts);
+        Assert.Equal("TC_MANUAL_001", conflict.MasterTestId);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.CommitAsync(batch.BatchId));
+
+        await service.SaveManualEditActionsAsync(batch.BatchId, new ManualEditActionRequest
+        {
+            Actions = [new() { RowId = conflict.RowId, Action = "SKIP_ROW" }]
+        });
+        await service.CommitAsync(batch.BatchId);
+
+        Assert.DoesNotContain(await db.MasterTemplates.ToListAsync(), item => item.MasterTestId == "TC_MANUAL_001" && item.MasterQaStatus == 2);
+        Assert.Contains(await db.MasterTemplates.ToListAsync(), item => item.MasterTestId == "TC_MANUAL_002");
+    }
+
     private static SupportDbContext CreateDbContext()
     {
         var connection = new SqliteConnection("DataSource=:memory:");

@@ -38,6 +38,7 @@ builder.Services.AddScoped<IDashboardCacheService, DashboardCacheService>();
 builder.Services.AddScoped<IManualImportService, ManualImportService>();
 builder.Services.AddScoped<PlaywrightCommandBuilder>();
 builder.Services.AddScoped<IPlaywrightRunService, PlaywrightRunService>();
+builder.Services.AddScoped<IMasterReviewService, MasterReviewService>();
 builder.Services.AddHostedService<SelectedMongoUserImportService>();
 
 builder.Services.AddCors(options =>

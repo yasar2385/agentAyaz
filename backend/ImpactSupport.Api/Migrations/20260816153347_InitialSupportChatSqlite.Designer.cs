@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ImpactSupport.Api.Migrations
 {
     [DbContext(typeof(SupportDbContext))]
-    [Migration("20260816063629_InitialSupportChatSqlite")]
+    [Migration("20260816153347_InitialSupportChatSqlite")]
     partial class InitialSupportChatSqlite
     {
         /// <inheritdoc />
@@ -487,6 +487,9 @@ namespace ImpactSupport.Api.Migrations
 
                     b.Property<int?>("MasterModules")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("MasterOriginalRawId")
+                        .HasColumnType("TEXT");
 
                     b.Property<int?>("MasterPreconditionRole")
                         .HasColumnType("INTEGER");
@@ -980,6 +983,9 @@ namespace ImpactSupport.Api.Migrations
 
                     b.Property<int>("ImportBatchSheetId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("OriginalRawTestCaseId")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("RowJson")
                         .IsRequired()

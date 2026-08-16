@@ -26,10 +26,12 @@ public sealed class MasterTemplate
     public int? MasterDevStatus { get; set; }
     public DateTimeOffset MasterCreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset MasterUpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string? MasterUpdatedBy { get; set; }
     public MasterTestDetails? Details { get; set; }
     public List<MasterTemplateTestingType> TestingTypes { get; set; } = [];
     public List<MasterTemplateRemark> Remarks { get; set; } = [];
     public List<MasterTemplateClient> Clients { get; set; } = [];
+    public List<MasterTemplateEditHistory> EditHistory { get; set; } = [];
 }
 
 public sealed class MasterTestDetails
@@ -76,6 +78,18 @@ public sealed class MasterTemplateRemark
     public int RoundNumber { get; set; }
     public string QaRemark { get; set; } = string.Empty;
     public string DevRemark { get; set; } = string.Empty;
+    public MasterTemplate? MasterTemplate { get; set; }
+}
+
+public sealed class MasterTemplateEditHistory
+{
+    public int Id { get; set; }
+    public int MasterId { get; set; }
+    public string FieldName { get; set; } = string.Empty;
+    public string OldValue { get; set; } = string.Empty;
+    public string NewValue { get; set; } = string.Empty;
+    public string EditedBy { get; set; } = string.Empty;
+    public DateTimeOffset EditedAt { get; set; } = DateTimeOffset.UtcNow;
     public MasterTemplate? MasterTemplate { get; set; }
 }
 

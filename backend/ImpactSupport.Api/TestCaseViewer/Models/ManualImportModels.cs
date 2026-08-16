@@ -18,6 +18,7 @@ public sealed class ImportBatchResponse
     public IReadOnlyList<ImportBatchSheetResponse> Sheets { get; set; } = [];
     public IReadOnlyList<ImportBatchErrorResponse> Errors { get; set; } = [];
     public IReadOnlyList<DuplicateIdResolutionResponse> DuplicateIdsResolved { get; set; } = [];
+    public IReadOnlyList<ManualEditConflictResponse> ManualEditConflicts { get; set; } = [];
 }
 
 public sealed class ImportBatchSheetResponse
@@ -44,6 +45,17 @@ public sealed class DuplicateIdResolutionResponse
     public string ResolvedId { get; set; } = string.Empty;
     public string SheetName { get; set; } = string.Empty;
     public int SourceRowNumber { get; set; }
+}
+
+public sealed class ManualEditConflictResponse
+{
+    public int RowId { get; set; }
+    public string MasterTestId { get; set; } = string.Empty;
+    public string SheetName { get; set; } = string.Empty;
+    public int SourceRowNumber { get; set; }
+    public string LastEditedBy { get; set; } = string.Empty;
+    public DateTimeOffset? LastEditedAt { get; set; }
+    public string SelectedAction { get; set; } = string.Empty;
 }
 
 public sealed class ImportInspectResponse
@@ -74,5 +86,16 @@ public sealed class SheetActionRequest
 public sealed class SheetActionItem
 {
     public int SheetId { get; set; }
+    public string Action { get; set; } = string.Empty;
+}
+
+public sealed class ManualEditActionRequest
+{
+    public IReadOnlyList<ManualEditActionItem> Actions { get; set; } = [];
+}
+
+public sealed class ManualEditActionItem
+{
+    public int RowId { get; set; }
     public string Action { get; set; } = string.Empty;
 }
