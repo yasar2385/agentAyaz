@@ -251,6 +251,49 @@ public sealed class MasterReviewService : IMasterReviewService
         return true;
     }
 
+    private static void ApplyCreateValues(MasterTemplate master, MasterTemplateCreateRequest request)
+    {
+        master.MasterTestNo = request.MasterTestNo ?? string.Empty;
+        master.MasterModules = request.ModuleId;
+        master.MasterPreconditionRole = request.PreconditionRoleId;
+        master.MasterType = request.MasterTypeId;
+        master.MasterDtdType = request.DtdTypeId;
+        master.MasterRoleWorkflow = request.RoleWorkflowId;
+        master.MasterIsCollaborative = request.MasterIsCollaborative ?? false;
+        master.MasterIsSharedRole = request.MasterIsSharedRole ?? false;
+        master.MasterPreparedBy = request.MasterPreparedBy ?? string.Empty;
+        master.MasterPreparedDate = request.MasterPreparedDate ?? string.Empty;
+        master.MasterTestData = request.MasterTestData ?? string.Empty;
+        master.MasterExpectedResult = request.MasterExpectedResult ?? string.Empty;
+        master.MasterActualResult = request.MasterActualResult ?? string.Empty;
+        master.MasterIssueType = request.IssueTypeId;
+        master.MasterQaStatus = request.QaStatusId;
+        master.MasterDevStatus = request.DevStatusId;
+        master.Details ??= new MasterTestDetails { MasterTemplate = master };
+        master.Details.MasterDescription = request.MasterDescription ?? string.Empty;
+        master.Details.MasterTestSteps = request.MasterTestSteps ?? string.Empty;
+        master.TestingTypes.Clear();
+        foreach (var id in request.TestingTypeIds?.Distinct() ?? [])
+        {
+            master.TestingTypes.Add(new MasterTemplateTestingType { TestingTypeId = id });
+        }
+        master.Clients.Clear();
+        foreach (var id in request.ClientIds?.Distinct() ?? [])
+        {
+            master.Clients.Add(new MasterTemplateClient { ClientId = id });
+        }
+        master.MasterClient = request.ClientIds?.Count > 0 ? request.ClientIds[0] : null;
+        master.Remarks.Clear();
+        var remarks = request.Remarks == null
+            ? Enumerable.Empty<MasterRemarkResponse>()
+            : request.Remarks.Where(item => item.RoundNumber is >= 1 and <= 4).OrderBy(item => item.RoundNumber);
+        foreach (var remark in remarks)
+        {
+            if (string.IsNullOrWhiteSpace(remark.QaRemark) && string.IsNullOrWhiteSpace(remark.DevRemark)) continue;
+            master.Remarks.Add(new MasterTemplateRemark { RoundNumber = remark.RoundNumber, QaRemark = remark.QaRemark, DevRemark = remark.DevRemark });
+        }
+    }
+
     private async Task<MasterTemplate?> LoadMasterAsync(string masterTestId, bool asTracking, CancellationToken cancellationToken)
     {
         var query = _dbContext.MasterTemplates

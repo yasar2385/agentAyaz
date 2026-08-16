@@ -175,8 +175,16 @@ export async function getMasterReviewDetail(masterTestId, user = null) {
   return getJson(`/api/testcaseviewer/master/${encodeURIComponent(masterTestId)}`, 'Failed to fetch master test case', user);
 }
 
+export async function createMasterReviewDetail(payload, user = null) {
+  return postJson('/api/testcaseviewer/master', payload, 'Failed to create master test case', user);
+}
+
 export async function updateMasterReviewDetail(masterTestId, payload, user = null) {
   return putJson(`/api/testcaseviewer/master/${encodeURIComponent(masterTestId)}`, payload, 'Failed to save master test case', user);
+}
+
+export async function deleteMasterReviewDetail(masterTestId, user = null) {
+  return deleteJson(`/api/testcaseviewer/master/${encodeURIComponent(masterTestId)}`, 'Failed to delete master test case', user);
 }
 
 export async function getPlaywrightReadiness(user = null) {
@@ -268,6 +276,18 @@ async function putJson(path, payload, fallbackMessage, user = null) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders(user) },
     body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(readErrorMessage(text) || fallbackMessage);
+  }
+  return res.json();
+}
+
+async function deleteJson(path, fallbackMessage, user = null) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: authHeaders(user),
   });
   if (!res.ok) {
     const text = await res.text();

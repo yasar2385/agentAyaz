@@ -476,8 +476,19 @@ namespace ImpactSupport.Api.Migrations
                     b.Property<bool>("MasterIsCollaborative")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("MasterIsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(true);
+
                     b.Property<bool>("MasterIsSharedRole")
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("MasterDeletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MasterDeletedBy")
+                        .HasColumnType("TEXT");
 
                     b.Property<int?>("MasterIssueType")
                         .HasColumnType("INTEGER");

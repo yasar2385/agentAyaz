@@ -91,9 +91,9 @@ button:disabled {
   border-radius: 8px;
   display: grid;
   gap: 4px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 0 auto 18px;
-  max-width: 1120px;
+  max-width: 520px;
   padding: 4px;
 }
 
@@ -107,6 +107,12 @@ button:disabled {
   color: #fff;
 }
 
+.management-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 auto 16px;
+  max-width: 860px;
+}
+
 .select-field,
 .search-field,
 .source-url-field {
@@ -118,6 +124,7 @@ button:disabled {
 }
 
 .select-field select,
+.select-field input,
 .search-field input,
 .source-url-field input,
 .select-field textarea {

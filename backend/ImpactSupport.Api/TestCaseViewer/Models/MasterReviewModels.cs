@@ -98,7 +98,7 @@ public sealed class MasterEditHistoryResponse
     public DateTimeOffset EditedAt { get; set; }
 }
 
-public sealed class MasterTemplateUpdateRequest
+public class MasterTemplateUpdateRequest
 {
     public DateTimeOffset LastKnownUpdatedAt { get; set; }
     public string? MasterTestNo { get; set; }

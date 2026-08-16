@@ -322,6 +322,8 @@ public sealed class SupportDbContext : DbContext
             entity.HasIndex(x => x.MasterTestId).IsUnique();
             entity.Property(x => x.MasterTestId).IsRequired();
             entity.Property(x => x.MasterOriginalRawId);
+            entity.Property(x => x.MasterIsActive).HasDefaultValue(true);
+            entity.Property(x => x.MasterDeletedAt);
             entity.Property(x => x.MasterDeletedBy);
             entity.Property(x => x.MasterTestNo).IsRequired();
             entity.Property(x => x.MasterSourceSheet).IsRequired();

@@ -12,7 +12,6 @@ import {
   loadSourceUrl,
   downloadToLocal,
   login,
-  uploadMasterImport,
   inspectImportFile,
   parseMasterImport,
   uploadResultImport,
@@ -24,7 +23,9 @@ import {
   getMasterReviewList,
   getMasterReviewLookups,
   getMasterReviewDetail,
+  createMasterReviewDetail,
   updateMasterReviewDetail,
+  deleteMasterReviewDetail,
   getPlaywrightReadiness,
   getRunMetadata,
   getRunConfigs,
@@ -59,6 +60,7 @@ const SOURCE_MODES = {
   reviewEdit: 'reviewEdit',
   playwright: 'playwright',
   startTesting: 'startTesting',
+  management: 'management',
 }
 
 function LoginPage({ onLogin }) {
@@ -335,7 +337,7 @@ function ImportSummary({ batch }) {
   )
 }
 
-function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }) {
+function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted, uploadMode = 'both' }) {
   const [masterFile, setMasterFile] = useState(null)
   const [resultFiles, setResultFiles] = useState([])
   const [resultMode, setResultMode] = useState('single')
@@ -464,20 +466,22 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
     .some(conflict => !['OVERWRITE', 'SKIP_ROW'].includes(conflict.selectedAction))
   const canCommitMaster = masterBatch && masterBatch.status !== 'COMMITTED' && !unresolvedMasterConflicts && !unresolvedManualEditConflicts && !hasErrors
   const canCommitResult = resultBatch && resultBatch.status !== 'COMMITTED' && !hasErrors
+  const showMasterUpload = uploadMode === 'both' || uploadMode === 'master'
+  const showResultUpload = uploadMode === 'both' || uploadMode === 'result'
 
   return (
     <section className="manual-upload-panel">
       <div className="upload-grid">
-        <form className="upload-card" onSubmit={runMasterUpload}>
+        {showMasterUpload && <form className="upload-card" onSubmit={runMasterUpload}>
           <div>
             <h2>Master Test Case Upload</h2>
             <p>CSV/TSV with Sheet Name, Module/Sub Module, and Test Case ID columns.</p>
           </div>
           <input type="file" accept=".xlsx,.csv,.tsv,text/csv,text/tab-separated-values" onChange={event => setMasterFile(event.target.files?.[0] ?? null)} />
           <button type="submit" disabled={loading || !masterFile}>Inspect master upload</button>
-        </form>
+        </form>}
 
-        <form className="upload-card" onSubmit={runResultUpload}>
+        {showResultUpload && <form className="upload-card" onSubmit={runResultUpload}>
           <div>
             <h2>Test Result Upload</h2>
             <p>Upload one single result file or multiple regression result files.</p>
@@ -493,7 +497,7 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
             onChange={event => setResultFiles([...(event.target.files ?? [])])}
           />
           <button type="submit" disabled={loading || resultFiles.length === 0}>Dry-run result upload</button>
-        </form>
+        </form>}
       </div>
 
       {message && <section className="notice compact">{message}</section>}
@@ -707,221 +711,300 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
   )
 }
 
-function isRunManager(user) {
-  const role = typeof user?.role === 'string' ? user.role : JSON.stringify(user?.role ?? '')
-  return role.toLowerCase().includes('dev') || role.toLowerCase().includes('manager')
+function TestCaseManagementPanel({ user, loading, onSetLoading, onError, onCommitted }) {
+  const [activeSubTab, setActiveSubTab] = useState('master')
+  return (
+    <section className="manual-upload-panel">
+      <div className="view-tabs management-tabs">
+        <button type="button" className={activeSubTab === 'master' ? 'active' : ''} onClick={() => setActiveSubTab('master')}>Master Test Case Upload</button>
+        <button type="button" className={activeSubTab === 'results' ? 'active' : ''} onClick={() => setActiveSubTab('results')}>Test Result Upload</button>
+        <button type="button" className={activeSubTab === 'review' ? 'active' : ''} onClick={() => setActiveSubTab('review')}>Review & Edit</button>
+      </div>
+      {activeSubTab === 'master' && <ManualUploadPanel user={user} loading={loading} onSetLoading={onSetLoading} onError={onError} onCommitted={onCommitted} uploadMode="master" />}
+      {activeSubTab === 'results' && <ManualUploadPanel user={user} loading={loading} onSetLoading={onSetLoading} onError={onError} onCommitted={onCommitted} uploadMode="result" />}
+      {activeSubTab === 'review' && <ReviewEditPanel user={user} loading={loading} onSetLoading={onSetLoading} onError={onError} />}
+    </section>
+  )
 }
 
-function PlaywrightRunsPanel({ user, loading, onSetLoading, onError }) {
-  const [readiness, setReadiness] = useState(null)
-  const [metadata, setMetadata] = useState({ modules: [], testingTypes: [], roles: [], clients: [] })
-  const [configs, setConfigs] = useState([])
-  const [execution, setExecution] = useState(null)
+function ReviewEditPanel({ user, loading, onSetLoading, onError }) {
+  const [modules, setModules] = useState([])
+  const [lookups, setLookups] = useState(null)
+  const [selectedModuleId, setSelectedModuleId] = useState(null)
+  const [list, setList] = useState({ items: [], page: 1, pageSize: 25, totalCount: 0 })
+  const [detail, setDetail] = useState(null)
+  const [form, setForm] = useState(null)
   const [message, setMessage] = useState('')
-  const [form, setForm] = useState({
-    testingName: '',
-    description: '',
-    modules: [],
-    testingTypes: [],
-    roleBased: 'ALL',
-    roleBasedClient: 'ALL',
-    ui: 'off',
-  })
-  const canManage = isRunManager(user)
+  const isCreate = detail?.isNew
 
-  async function loadRuns() {
-    await runAction(async () => {
-      const [ready, meta, saved] = await Promise.all([
-        getPlaywrightReadiness(user),
-        getRunMetadata(user),
-        getRunConfigs(user),
-      ])
-      setReadiness(ready)
-      setMetadata(meta)
-      setConfigs(saved)
-    })
-  }
+  useEffect(() => {
+    loadInitial()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  async function runAction(action) {
+  async function run(action) {
     onSetLoading(true)
     onError('')
     setMessage('')
     try {
       await action()
     } catch (err) {
-      onError(err.message || 'Playwright run action failed.')
+      onError(err.message || 'Review & Edit action failed.')
     } finally {
       onSetLoading(false)
     }
   }
 
-  async function saveConfig(event) {
+  async function loadInitial() {
+    await run(async () => {
+      const [moduleRows, lookupRows] = await Promise.all([getMasterReviewModules(user), getMasterReviewLookups(user)])
+      setModules(moduleRows)
+      setLookups(lookupRows)
+      const firstModule = moduleRows[0]?.moduleId ?? null
+      setSelectedModuleId(firstModule)
+      await loadList(firstModule, 1)
+    })
+  }
+
+  async function loadList(moduleId = selectedModuleId, page = 1) {
+    const rows = await getMasterReviewList(moduleId, page, 25, user)
+    setList(rows)
+    return rows
+  }
+
+  async function chooseModule(moduleId) {
+    await run(async () => {
+      setSelectedModuleId(moduleId)
+      setDetail(null)
+      setForm(null)
+      await loadList(moduleId, 1)
+    })
+  }
+
+  async function openDetail(masterTestId) {
+    await run(async () => {
+      const row = await getMasterReviewDetail(masterTestId, user)
+      setDetail(row)
+      setForm(toReviewForm(row))
+    })
+  }
+
+  function createNew() {
+    const row = blankReviewDetail(selectedModuleId)
+    setDetail(row)
+    setForm(toReviewForm(row))
+    setMessage('')
+  }
+
+  async function saveDetail(event) {
     event.preventDefault()
-    await runAction(async () => {
-      await saveRunConfig(form, user)
-      setConfigs(await getRunConfigs(user))
-      setMessage('Run config saved.')
-      setForm(current => ({ ...current, testingName: '', description: '' }))
+    if (!detail || !form) return
+    await run(async () => {
+      const payload = { ...form, lastKnownUpdatedAt: detail.masterUpdatedAt }
+      const saved = isCreate
+        ? await createMasterReviewDetail(payload, user)
+        : await updateMasterReviewDetail(detail.masterTestId, payload, user)
+      setDetail(saved)
+      setForm(toReviewForm(saved))
+      setSelectedModuleId(saved.moduleId ?? selectedModuleId)
+      await loadList(saved.moduleId ?? selectedModuleId, 1)
+      setMessage(isCreate ? 'Test case created.' : 'Test case saved.')
     })
   }
 
-  async function triggerConfig(configId) {
-    await runAction(async () => {
-      const started = await triggerRunConfig(configId, user)
-      setExecution(started)
-      setMessage(`Execution ${started.id} queued.`)
+  async function deleteDetail() {
+    if (!detail || isCreate) return
+    if (!window.confirm(`Delete ${detail.masterTestId}? This will soft-delete the test case.`)) return
+    await run(async () => {
+      await deleteMasterReviewDetail(detail.masterTestId, user)
+      setDetail(null)
+      setForm(null)
+      await loadList(selectedModuleId, list.page)
+      setMessage('Test case soft-deleted.')
     })
   }
 
-  async function pollExecution() {
-    if (!execution?.id) return
-    await runAction(async () => {
-      setExecution(await getRunExecution(execution.id, user))
-    })
+  function setField(field, value) {
+    setForm(current => ({ ...current, [field]: value }))
   }
 
-  async function cancelExecution() {
-    if (!execution?.id) return
-    await runAction(async () => {
-      setExecution(await cancelRunExecution(execution.id, user))
-    })
-  }
-
-  function toggleListValue(field, value) {
+  function setRemark(roundNumber, field, value) {
     setForm(current => ({
       ...current,
-      [field]: current[field].includes(value)
-        ? current[field].filter(item => item !== value)
-        : [...current[field], value],
+      remarks: current.remarks.map(remark => remark.roundNumber === roundNumber ? { ...remark, [field]: value } : remark),
     }))
   }
 
-  const blockers = readiness?.blockingIssues ?? []
-  const fullRun = form.modules.length === 0
-    && form.testingTypes.length === 0
-    && form.roleBased === 'ALL'
-    && form.roleBasedClient === 'ALL'
-    && form.ui !== 'on'
-  const terminal = ['PASSED', 'FAILED', 'ERROR', 'CANCELLED'].includes(execution?.status)
+  const totalPages = Math.max(1, Math.ceil((list.totalCount ?? 0) / (list.pageSize ?? 25)))
 
   return (
-    <section className="manual-upload-panel">
-      <section className="upload-review">
-        <div className="section-heading">
-          <h2>Playwright Readiness</h2>
-          <button className="secondary" type="button" onClick={loadRuns} disabled={loading}>Check</button>
-        </div>
-        {!readiness && <div className="notice compact">Check readiness before creating or running configs.</div>}
-        {readiness && (
-          <>
-            <div className="readiness-grid">
-              <StatusPill label="Project" tone={readiness.playwrightProjectFound ? 'good' : 'bad'} />
-              <StatusPill label="Tags" tone={readiness.taggedSpecsFound ? 'good' : 'bad'} />
-              <StatusPill label="Node" tone={readiness.nodeAvailable ? 'good' : 'bad'} />
-              <StatusPill label="Playwright" tone={readiness.playwrightAvailable ? 'good' : 'bad'} />
-              <StatusPill label="Browsers" tone={readiness.browsersAvailable ? 'good' : 'warn'} />
-              <StatusPill label="Master data" tone={readiness.manualMasterDataAvailable ? 'good' : 'bad'} />
-            </div>
-            {blockers.length > 0 && (
-              <div className="notice error compact">
-                {blockers.map(issue => <div key={issue}>{issue}</div>)}
-              </div>
-            )}
-            {blockers.length === 0 && <div className="notice compact">Ready to create and trigger named runs.</div>}
-          </>
-        )}
-      </section>
-
-      <section className="upload-review">
-        <div className="section-heading">
-          <h2>Named Run Config</h2>
-          {fullRun && <StatusPill label="Full run" tone="warn" />}
-        </div>
-        <form className="run-config-form" onSubmit={saveConfig}>
-          <label className="source-url-field">
-            <span>Testing name</span>
-            <input value={form.testingName} onChange={event => setForm({ ...form, testingName: event.target.value })} />
-          </label>
-          <label className="source-url-field">
-            <span>Description</span>
-            <input value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} />
-          </label>
-          <div className="filter-block">
-            <span>Module/Sub Module</span>
-            <div className="chip-list">
-              <button type="button" className={form.modules.length === 0 ? 'chip active' : 'chip'} onClick={() => setForm({ ...form, modules: [] })}>All modules</button>
-              {metadata.modules.map(module => (
-                <button type="button" key={module} className={form.modules.includes(module) ? 'chip active' : 'chip'} onClick={() => toggleListValue('modules', module)}>{module}</button>
-              ))}
-            </div>
+    <section className="review-edit-panel">
+      {message && <section className="notice compact">{message}</section>}
+      <div className="review-layout">
+        <aside className="upload-review">
+          <div className="section-heading">
+            <h2>Modules</h2>
+            <button type="button" className="secondary" onClick={createNew}>Create</button>
           </div>
-          <div className="filter-block">
-            <span>Type of testing</span>
-            <div className="chip-list">
-              <button type="button" className={form.testingTypes.length === 0 ? 'chip active' : 'chip'} onClick={() => setForm({ ...form, testingTypes: [] })}>All types</button>
-              {metadata.testingTypes.map(type => (
-                <button type="button" key={type} className={form.testingTypes.includes(type) ? 'chip active' : 'chip'} onClick={() => toggleListValue('testingTypes', type)}>{type}</button>
-              ))}
-            </div>
+          <div className="module-list">
+            {modules.map(module => (
+              <button key={module.moduleId} type="button" className={selectedModuleId === module.moduleId ? 'active' : 'secondary'} onClick={() => chooseModule(module.moduleId)}>
+                <span>{module.moduleName}</span>
+                <strong>{module.testCaseCount}</strong>
+              </button>
+            ))}
           </div>
-          <SelectField label="Role" value={form.roleBased} options={[{ value: 'ALL', label: 'All roles' }, ...metadata.roles.map(role => ({ value: role, label: role }))]} onChange={value => setForm({ ...form, roleBased: value })} placeholder="Role" />
-          <SelectField label="Client" value={form.roleBasedClient} options={[{ value: 'ALL', label: 'All clients' }, ...metadata.clients.map(client => ({ value: client, label: client }))]} onChange={value => setForm({ ...form, roleBasedClient: value })} placeholder="Client" />
-          <div className="segmented compact">
-            <button type="button" className={form.ui === 'off' ? 'active' : ''} onClick={() => setForm({ ...form, ui: 'off' })}>Headless</button>
-            <button type="button" className={form.ui === 'on' ? 'active' : ''} onClick={() => setForm({ ...form, ui: 'on' })}>Headed</button>
-          </div>
-          <button type="submit" disabled={loading || !canManage || !form.testingName.trim() || blockers.length > 0}>Save config</button>
-        </form>
-      </section>
-
-      <section className="upload-review">
-        <div className="section-heading">
-          <h2>Saved Configs</h2>
-          <span>{configs.length}</span>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Targets</th>
-                <th>Flags</th>
-                <th>Run</th>
-              </tr>
-            </thead>
-            <tbody>
-              {configs.map(config => (
-                <tr key={config.id}>
-                  <td>{config.testingName}{config.isFullRun && <div><StatusPill label="Full run" tone="warn" /></div>}</td>
-                  <td>{(config.modules.length ? config.modules : ['All modules']).join(', ')} / {(config.testingTypes.length ? config.testingTypes : ['All types']).join(', ')}</td>
-                  <td>Role {config.roleBased}; Client {config.roleBasedClient}; UI {config.ui}</td>
-                  <td><button type="button" disabled={loading || !canManage || blockers.length > 0} onClick={() => triggerConfig(config.id)}>Run</button></td>
-                </tr>
-              ))}
-              {configs.length === 0 && <tr><td colSpan="4" className="empty-cell">No saved configs yet.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {execution && (
+        </aside>
         <section className="upload-review">
           <div className="section-heading">
-            <h2>Execution {execution.id}</h2>
-            <StatusPill label={execution.status} tone={execution.status === 'PASSED' ? 'good' : execution.status === 'FAILED' || execution.status === 'ERROR' ? 'bad' : 'warn'} />
+            <h2>Test Cases</h2>
+            <span>{list.totalCount ?? 0}</span>
           </div>
-          <div className="notice compact">{execution.failureSummary || execution.playwrightCommand}</div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Test Case ID</th><th>No.</th><th>QA</th><th>Dev</th><th>Updated</th></tr></thead>
+              <tbody>
+                {(list.items ?? []).map(row => (
+                  <tr key={row.masterTestId} onClick={() => openDetail(row.masterTestId)}>
+                    <td>{row.masterTestId}</td>
+                    <td>{row.masterTestNo}</td>
+                    <td><StatusPill label={row.qaStatus || 'Blank'} tone={statusTone(row.qaStatus)} /></td>
+                    <td><StatusPill label={row.devStatus || 'Blank'} tone={statusTone(row.devStatus)} /></td>
+                    <td>{row.masterUpdatedAt ? new Date(row.masterUpdatedAt).toLocaleString() : ''}</td>
+                  </tr>
+                ))}
+                {(list.items ?? []).length === 0 && <tr><td colSpan="5" className="empty-cell">No active master test cases.</td></tr>}
+              </tbody>
+            </table>
+          </div>
           <div className="topbar-actions">
-            {!terminal && <button className="secondary" type="button" onClick={pollExecution} disabled={loading}>Refresh status</button>}
-            {!terminal && canManage && <button type="button" onClick={cancelExecution} disabled={loading}>Cancel</button>}
-            {['PASSED', 'FAILED'].includes(execution.status) && <a className="button-link" href={runReportUrl(execution.id)} target="_blank" rel="noreferrer">Open report</a>}
+            <button type="button" className="secondary" disabled={loading || list.page <= 1} onClick={() => run(() => loadList(selectedModuleId, list.page - 1))}>Previous</button>
+            <span>{list.page} / {totalPages}</span>
+            <button type="button" className="secondary" disabled={loading || list.page >= totalPages} onClick={() => run(() => loadList(selectedModuleId, list.page + 1))}>Next</button>
           </div>
         </section>
-      )}
-
-      {message && <section className="notice compact">{message}</section>}
+        <section className="upload-review detail-editor">
+          <div className="section-heading">
+            <h2>{isCreate ? 'Create Test Case' : 'Detail'}</h2>
+            <span>{detail?.masterTestId || 'Select a row'}</span>
+          </div>
+          {detail && form && lookups ? (
+            <form className="review-form" onSubmit={saveDetail}>
+              {isCreate && <ReviewTextField label="Test case ID" value={form.masterTestId} onChange={value => setField('masterTestId', value)} />}
+              <div className="form-grid">
+                <ReviewTextField label="Test no." value={form.masterTestNo} onChange={value => setField('masterTestNo', value)} />
+                <ReviewSelectField label="Module" value={form.moduleId} options={lookups.modules} onChange={value => setField('moduleId', value)} />
+                <ReviewSelectField label="Precondition role" value={form.preconditionRoleId} options={lookups.preconditionRoles} onChange={value => setField('preconditionRoleId', value)} allowBlank />
+                <ReviewSelectField label="Type" value={form.masterTypeId} options={lookups.contentTypes} onChange={value => setField('masterTypeId', value)} allowBlank />
+                <ReviewSelectField label="Issue type" value={form.issueTypeId} options={lookups.issueTypes} onChange={value => setField('issueTypeId', value)} allowBlank />
+                <ReviewSelectField label="QA status" value={form.qaStatusId} options={lookups.qaStatuses} onChange={value => setField('qaStatusId', value)} allowBlank />
+                <ReviewSelectField label="Dev status" value={form.devStatusId} options={lookups.devStatuses} onChange={value => setField('devStatusId', value)} allowBlank />
+              </div>
+              <div className="form-grid two">
+                <ReviewMultiSelectField label="Testing types" value={form.testingTypeIds} options={lookups.testingTypes} onChange={value => setField('testingTypeIds', value)} />
+                <ReviewMultiSelectField label="Clients" value={form.clientIds} options={lookups.clients} onChange={value => setField('clientIds', value)} />
+              </div>
+              <ReviewTextAreaField label="Description" value={form.masterDescription} onChange={value => setField('masterDescription', value)} />
+              <ReviewTextAreaField label="Test steps" value={form.masterTestSteps} onChange={value => setField('masterTestSteps', value)} />
+              <ReviewTextAreaField label="Test data" value={form.masterTestData} onChange={value => setField('masterTestData', value)} />
+              <ReviewTextAreaField label="Expected result" value={form.masterExpectedResult} onChange={value => setField('masterExpectedResult', value)} />
+              <ReviewTextAreaField label="Actual result" value={form.masterActualResult} onChange={value => setField('masterActualResult', value)} />
+              <div className="remark-grid">
+                {form.remarks.map(remark => (
+                  <div key={remark.roundNumber} className="remark-block">
+                    <h3>Round {remark.roundNumber}</h3>
+                    <ReviewTextAreaField label="QA remarks" value={remark.qaRemark} onChange={value => setRemark(remark.roundNumber, 'qaRemark', value)} />
+                    <ReviewTextAreaField label="Dev remarks" value={remark.devRemark} onChange={value => setRemark(remark.roundNumber, 'devRemark', value)} />
+                  </div>
+                ))}
+              </div>
+              <div className="topbar-actions">
+                <button type="submit" disabled={loading || (isCreate && !form.masterTestId.trim())}>{isCreate ? 'Create' : 'Save changes'}</button>
+                {!isCreate && <button type="button" className="secondary" disabled={loading} onClick={() => openDetail(detail.masterTestId)}>Reload</button>}
+                {!isCreate && <button type="button" className="ghost" disabled={loading} onClick={deleteDetail}>Delete</button>}
+              </div>
+              <details>
+                <summary>Edit history</summary>
+                <div className="history-list">
+                  {(detail.editHistory ?? []).map(item => <p key={item.id}><strong>{item.fieldName}</strong> changed by {item.editedBy} on {new Date(item.editedAt).toLocaleString()}</p>)}
+                  {(detail.editHistory ?? []).length === 0 && <p>No manual edits yet.</p>}
+                </div>
+              </details>
+            </form>
+          ) : <p>Select a test case to review and edit committed master data.</p>}
+        </section>
+      </div>
     </section>
   )
+}
+
+function blankReviewDetail(moduleId) {
+  return {
+    isNew: true,
+    masterTestId: '',
+    moduleId: moduleId ?? '',
+    remarks: [1, 2, 3, 4].map(roundNumber => ({ roundNumber, qaRemark: '', devRemark: '' })),
+    testingTypeIds: [],
+    clientIds: [],
+    masterUpdatedAt: new Date().toISOString(),
+  }
+}
+
+function toReviewForm(detail) {
+  return {
+    masterTestId: detail.masterTestId ?? '',
+    masterTestNo: detail.masterTestNo ?? '',
+    moduleId: detail.moduleId ?? '',
+    preconditionRoleId: detail.preconditionRoleId ?? '',
+    masterTypeId: detail.masterTypeId ?? '',
+    issueTypeId: detail.issueTypeId ?? '',
+    qaStatusId: detail.qaStatusId ?? '',
+    devStatusId: detail.devStatusId ?? '',
+    masterDescription: detail.masterDescription ?? '',
+    masterTestSteps: detail.masterTestSteps ?? '',
+    masterTestData: detail.masterTestData ?? '',
+    masterExpectedResult: detail.masterExpectedResult ?? '',
+    masterActualResult: detail.masterActualResult ?? '',
+    testingTypeIds: detail.testingTypeIds ?? [],
+    clientIds: detail.clientIds ?? [],
+    remarks: detail.remarks ?? [1, 2, 3, 4].map(roundNumber => ({ roundNumber, qaRemark: '', devRemark: '' })),
+  }
+}
+
+function ReviewTextField({ label, value, onChange }) {
+  return <label className="select-field"><span>{label}</span><input value={value ?? ''} onChange={event => onChange(event.target.value)} /></label>
+}
+
+function ReviewTextAreaField({ label, value, onChange }) {
+  return <label className="select-field"><span>{label}</span><textarea value={value ?? ''} onChange={event => onChange(event.target.value)} /></label>
+}
+
+function ReviewSelectField({ label, value, options = [], onChange, allowBlank = false }) {
+  return (
+    <label className="select-field">
+      <span>{label}</span>
+      <select value={value ?? ''} onChange={event => onChange(event.target.value ? Number(event.target.value) : null)}>
+        {allowBlank && <option value="">Blank</option>}
+        {options.map(option => <option key={option.id} value={option.id}>{option.value}</option>)}
+      </select>
+    </label>
+  )
+}
+
+function ReviewMultiSelectField({ label, value = [], options = [], onChange }) {
+  return (
+    <label className="select-field">
+      <span>{label}</span>
+      <select multiple value={value.map(String)} onChange={event => onChange([...event.target.selectedOptions].map(option => Number(option.value)))}>
+        {options.map(option => <option key={option.id} value={option.id}>{option.value}</option>)}
+      </select>
+    </label>
+  )
+}
+
+function isRunManager(user) {
+  const role = typeof user?.role === 'string' ? user.role : JSON.stringify(user?.role ?? '')
+  return role.toLowerCase().includes('dev') || role.toLowerCase().includes('manager')
 }
 
 function StartTestingPanel({ user, loading, onSetLoading, onError }) {
@@ -1011,6 +1094,30 @@ function StartTestingPanel({ user, loading, onSetLoading, onError }) {
     })
   }
 
+  async function triggerConfig(configId) {
+    await runAction(async () => {
+      const started = await triggerRunConfig(configId, user)
+      setExecution(started)
+      setMessage(`Execution ${started.id} queued.`)
+      await loadStartTesting(recentScope)
+    })
+  }
+
+  async function pollExecution() {
+    if (!execution?.id) return
+    await runAction(async () => {
+      setExecution(await getRunExecution(execution.id, user))
+    })
+  }
+
+  async function cancelExecution() {
+    if (!execution?.id) return
+    await runAction(async () => {
+      setExecution(await cancelRunExecution(execution.id, user))
+      await loadStartTesting(recentScope)
+    })
+  }
+
   async function submitVerify(event) {
     event.preventDefault()
     await runAction(async () => {
@@ -1036,6 +1143,7 @@ function StartTestingPanel({ user, loading, onSetLoading, onError }) {
     && form.roleBasedClient === 'ALL'
     && form.ui !== 'on'
   const reportStatuses = ['PASSED', 'FAILED']
+  const terminal = ['PASSED', 'FAILED', 'ERROR', 'CANCELLED'].includes(execution?.status)
 
   return (
     <section className="manual-upload-panel">
@@ -1097,7 +1205,7 @@ function StartTestingPanel({ user, loading, onSetLoading, onError }) {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Config</th><th>Last module</th><th>Next module</th><th>Action</th></tr>
+              <tr><th>Config</th><th>Last module</th><th>Next module</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {configs.map(config => {
@@ -1107,7 +1215,12 @@ function StartTestingPanel({ user, loading, onSetLoading, onError }) {
                     <td>{config.testingName}</td>
                     <td>{progress.lastModuleName || 'Not started'}</td>
                     <td>{progress.nextModuleName || 'Complete'}</td>
-                    <td><button type="button" disabled={loading || !canManage || blockers.length > 0 || !progress.nextModuleName} onClick={() => continueConfig(config.id)}>Continue</button></td>
+                    <td>
+                      <div className="topbar-actions">
+                        <button type="button" disabled={loading || !canManage || blockers.length > 0} onClick={() => triggerConfig(config.id)}>Run</button>
+                        <button type="button" className="secondary" disabled={loading || !canManage || blockers.length > 0 || !progress.nextModuleName} onClick={() => continueConfig(config.id)}>Continue</button>
+                      </div>
+                    </td>
                   </tr>
                 )
               })}
@@ -1175,7 +1288,11 @@ function StartTestingPanel({ user, loading, onSetLoading, onError }) {
             <StatusPill label={execution.status} tone={execution.status === 'PASSED' ? 'good' : execution.status === 'FAILED' || execution.status === 'ERROR' ? 'bad' : 'warn'} />
           </div>
           <div className="notice compact">{execution.failureSummary || execution.playwrightCommand}</div>
-          {reportStatuses.includes(execution.status) && <a className="button-link" href={runReportUrl(execution.id)} target="_blank" rel="noreferrer">Open report</a>}
+          <div className="topbar-actions">
+            {!terminal && <button className="secondary" type="button" onClick={pollExecution} disabled={loading}>Refresh status</button>}
+            {!terminal && canManage && <button type="button" onClick={cancelExecution} disabled={loading}>Cancel</button>}
+            {reportStatuses.includes(execution.status) && <a className="button-link" href={runReportUrl(execution.id)} target="_blank" rel="noreferrer">Open report</a>}
+          </div>
         </section>
       )}
 
@@ -1275,7 +1392,7 @@ function DashboardPage({ user, onLogout }) {
   const [rowsLoading, setRowsLoading] = useState(false)
   const [error, setError] = useState('')
   const [dashboardLoaded, setDashboardLoaded] = useState(false)
-  const [sourceMode, setSourceMode] = useState(SOURCE_MODES.workspaceCloud)
+  const [sourceMode, setSourceMode] = useState(SOURCE_MODES.management)
   const [sourceUrl, setSourceUrl] = useState('')
 
   async function loadDashboard(nextReportType = reportType) {
@@ -1643,40 +1760,12 @@ function DashboardPage({ user, onLogout }) {
       </header>
 
       <section className="mode-tabs">
-          <button
-            type="button"
-            className={sourceMode === SOURCE_MODES.workspaceCloud ? 'active' : ''}
-            onClick={() => changeSourceMode(SOURCE_MODES.workspaceCloud)}
-          >
-          Workspace Cloud
-        </button>
         <button
           type="button"
-          className={sourceMode === SOURCE_MODES.local ? 'active' : ''}
-          onClick={() => changeSourceMode(SOURCE_MODES.local)}
+          className={sourceMode === SOURCE_MODES.management ? 'active' : ''}
+          onClick={() => changeSourceMode(SOURCE_MODES.management)}
         >
-          Local
-        </button>
-        <button
-          type="button"
-          className={sourceMode === SOURCE_MODES.hybrid ? 'active' : ''}
-          onClick={() => changeSourceMode(SOURCE_MODES.hybrid)}
-        >
-          Hybrid
-        </button>
-        <button
-          type="button"
-          className={sourceMode === SOURCE_MODES.manual ? 'active' : ''}
-          onClick={() => changeSourceMode(SOURCE_MODES.manual)}
-        >
-          Manual Upload
-        </button>
-        <button
-          type="button"
-          className={sourceMode === SOURCE_MODES.playwright ? 'active' : ''}
-          onClick={() => changeSourceMode(SOURCE_MODES.playwright)}
-        >
-          Playwright Runs
+          Test Case Management
         </button>
         <button
           type="button"
@@ -1687,22 +1776,13 @@ function DashboardPage({ user, onLogout }) {
         </button>
       </section>
 
-      {sourceMode === SOURCE_MODES.manual && (
-        <ManualUploadPanel
+      {sourceMode === SOURCE_MODES.management && (
+        <TestCaseManagementPanel
           user={user}
           loading={loading}
           onSetLoading={setLoading}
           onError={setError}
           onCommitted={loadDashboard}
-        />
-      )}
-
-      {sourceMode === SOURCE_MODES.playwright && (
-        <PlaywrightRunsPanel
-          user={user}
-          loading={loading}
-          onSetLoading={setLoading}
-          onError={setError}
         />
       )}
 
@@ -1715,7 +1795,7 @@ function DashboardPage({ user, onLogout }) {
         />
       )}
 
-      {![SOURCE_MODES.manual, SOURCE_MODES.playwright, SOURCE_MODES.startTesting].includes(sourceMode) && !dashboardLoaded && !summary && !loading && !error && (
+      {![SOURCE_MODES.management, SOURCE_MODES.manual, SOURCE_MODES.reviewEdit, SOURCE_MODES.playwright, SOURCE_MODES.startTesting].includes(sourceMode) && !dashboardLoaded && !summary && !loading && !error && (
         <section className="empty-state">
           <h2>Connect the dashboard</h2>
           <p>
@@ -1730,7 +1810,7 @@ function DashboardPage({ user, onLogout }) {
       {loading && <section className="notice">Loading data from ImpactSupport.Api...</section>}
       {error && <section className="notice error">{error}</section>}
 
-      {![SOURCE_MODES.manual, SOURCE_MODES.playwright, SOURCE_MODES.startTesting].includes(sourceMode) && (dashboardLoaded || summary || knownFile || regressionFiles.length > 0) && (
+      {![SOURCE_MODES.management, SOURCE_MODES.manual, SOURCE_MODES.reviewEdit, SOURCE_MODES.playwright, SOURCE_MODES.startTesting].includes(sourceMode) && (dashboardLoaded || summary || knownFile || regressionFiles.length > 0) && (
         <>
           <section className="selector-panel">
             <div className="segmented">

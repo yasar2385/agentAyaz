@@ -17,11 +17,50 @@ public sealed class MasterReviewServiceTests
         db.MasterModules.Add(new MasterModule { Id = 50, Name = "Contact Support" });
         db.MasterTemplates.Add(new MasterTemplate { MasterTestId = "TC_REVIEW_001", MasterModules = 50 });
         db.MasterTemplates.Add(new MasterTemplate { MasterTestId = "TC_REVIEW_002", MasterModules = 50 });
+        db.MasterTemplates.Add(new MasterTemplate { MasterTestId = "TC_REVIEW_DELETED", MasterModules = 50, MasterIsActive = false });
         await db.SaveChangesAsync();
 
         var modules = await new MasterReviewService(db).GetModulesAsync();
 
         Assert.Contains(modules, module => module.ModuleId == 50 && module.TestCaseCount == 2);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ValidRequestCreatesDetailAndAuditHistory()
+    {
+        await using var db = CreateDbContext();
+        db.MasterModules.Add(new MasterModule { Id = 51, Name = "Authoring" });
+        await db.SaveChangesAsync();
+
+        var saved = await new MasterReviewService(db).CreateAsync(new MasterTemplateCreateRequest
+        {
+            MasterTestId = "TC_REVIEW_CREATE",
+            MasterTestNo = "1",
+            ModuleId = 51,
+            MasterDescription = "Manual description",
+            MasterTestSteps = "Manual steps",
+            TestingTypeIds = [1],
+            Remarks = [new() { RoundNumber = 1, QaRemark = "QA", DevRemark = "Dev" }]
+        }, QaUser());
+
+        Assert.Equal("TC_REVIEW_CREATE", saved.MasterTestId);
+        Assert.Equal(51, saved.ModuleId);
+        Assert.Equal("QA User", saved.MasterUpdatedBy);
+        Assert.Contains(saved.EditHistory, item => item.FieldName == "Create");
+        Assert.Contains(saved.Remarks, item => item.RoundNumber == 1 && item.QaRemark == "QA");
+    }
+
+    [Fact]
+    public async Task CreateAsync_DuplicateMasterTestIdRejects()
+    {
+        await using var db = CreateDbContext();
+        db.MasterTemplates.Add(new MasterTemplate { MasterTestId = "TC_REVIEW_DUP" });
+        await db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<ArgumentException>(() => new MasterReviewService(db).CreateAsync(new MasterTemplateCreateRequest
+        {
+            MasterTestId = "TC_REVIEW_DUP"
+        }, QaUser()));
     }
 
     [Fact]
@@ -92,6 +131,33 @@ public sealed class MasterReviewServiceTests
             LastKnownUpdatedAt = detail!.MasterUpdatedAt,
             MasterTestNo = "new"
         }, new AuthUser { Username = "viewer", Role = "Viewer" }));
+    }
+
+    [Fact]
+    public async Task DeleteAsync_SoftDeletesAndListExcludesButKeepsResultHistory()
+    {
+        await using var db = CreateDbContext();
+        db.MasterModules.Add(new MasterModule { Id = 52, Name = "Review" });
+        db.MasterTemplates.Add(new MasterTemplate { MasterTestId = "TC_REVIEW_DELETE", MasterModules = 52 });
+        db.TestingMetaResults.Add(new TestingMetaResult
+        {
+            Name = "Manual result",
+            DataResults = [new TestingDataResult { MasterTestId = "TC_REVIEW_DELETE", MasterQaStatus = 1 }]
+        });
+        await db.SaveChangesAsync();
+
+        var service = new MasterReviewService(db);
+        var deleted = await service.DeleteAsync("TC_REVIEW_DELETE", QaUser());
+        var list = await service.GetListAsync(52, 1, 25);
+        var master = await db.MasterTemplates.IgnoreQueryFilters().SingleAsync(item => item.MasterTestId == "TC_REVIEW_DELETE");
+
+        Assert.True(deleted);
+        Assert.False(master.MasterIsActive);
+        Assert.Equal("QA User", master.MasterDeletedBy);
+        Assert.NotNull(master.MasterDeletedAt);
+        Assert.Empty(list.Items);
+        Assert.Equal(1, await db.TestingDataResults.CountAsync(item => item.MasterTestId == "TC_REVIEW_DELETE"));
+        Assert.True(await db.MasterTemplateEditHistory.AnyAsync(item => item.MasterId == master.MasterId && item.FieldName == "Delete"));
     }
 
     private static SupportDbContext CreateDbContext()
