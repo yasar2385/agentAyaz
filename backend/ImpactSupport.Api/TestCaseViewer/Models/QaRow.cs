@@ -7,6 +7,7 @@ public sealed class QaRow
     public string SheetName { get; set; } = string.Empty;
     public string TestCaseNo { get; set; } = string.Empty;
     public string TestCaseId { get; set; } = string.Empty;
+    public string? OriginalRawTestCaseId { get; set; }
     public string Preconditions { get; set; } = string.Empty;
     public string Module { get; set; } = string.Empty;
     public string PreparedBy { get; set; } = string.Empty;

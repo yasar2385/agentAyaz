@@ -113,7 +113,8 @@ public sealed class ManualImportService : IManualImportService
             RowsError = parsed.Errors.Count
         };
 
-        BuildBatch(batch, parsed.Rows, dryRunErrors, existingSheetNames);
+        var existingTestCaseIds = await _dbContext.MasterTemplates.AsNoTracking().Select(item => item.MasterTestId).ToListAsync(cancellationToken);
+        BuildBatch(batch, parsed.Rows, dryRunErrors, existingSheetNames, resolveDuplicateIds: true, existingTestCaseIds);
         _dbContext.QaImportBatches.Add(batch);
         await _dbContext.SaveChangesAsync(cancellationToken);
         return ToResponse(batch, dryRunErrors);
@@ -136,7 +137,7 @@ public sealed class ManualImportService : IManualImportService
             RowsError = parsed.Errors.Count
         };
 
-        BuildBatch(batch, parsed.Rows, dryRunErrors, []);
+        BuildBatch(batch, parsed.Rows, dryRunErrors, [], resolveDuplicateIds: false, []);
         _dbContext.QaImportBatches.Add(batch);
         await _dbContext.SaveChangesAsync(cancellationToken);
         return ToResponse(batch, dryRunErrors);
@@ -280,22 +281,37 @@ public sealed class ManualImportService : IManualImportService
         return new ParsedUpload(rows, errors);
     }
 
-    private static void BuildBatch(QaImportBatch batch, IReadOnlyList<ParsedRow> parsedRows, List<QaImportBatchError> errors, HashSet<string> existingSheetNames)
+    private static void BuildBatch(
+        QaImportBatch batch,
+        IReadOnlyList<ParsedRow> parsedRows,
+        List<QaImportBatchError> errors,
+        HashSet<string> existingSheetNames,
+        bool resolveDuplicateIds,
+        IReadOnlyCollection<string> existingTestCaseIds)
     {
-        var duplicateIds = parsedRows
+        var duplicateIds = resolveDuplicateIds
+            ? new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            : parsedRows
             .GroupBy(item => item.Row.TestCaseId, StringComparer.OrdinalIgnoreCase)
             .Where(group => group.Count() > 1)
             .Select(group => group.Key)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var duplicate in duplicateIds)
+        if (resolveDuplicateIds)
         {
-            errors.Add(new QaImportBatchError
+            ResolveDuplicateIds(parsedRows, existingTestCaseIds);
+        }
+        else
+        {
+            foreach (var duplicate in duplicateIds)
             {
-                RowNumber = 0,
-                RawValue = duplicate,
-                ErrorMessage = "Duplicate Test Case ID appears more than once in this upload."
-            });
+                errors.Add(new QaImportBatchError
+                {
+                    RowNumber = 0,
+                    RawValue = duplicate,
+                    ErrorMessage = "Duplicate Test Case ID appears more than once in this upload."
+                });
+            }
         }
 
         foreach (var group in parsedRows.Where(item => !duplicateIds.Contains(item.Row.TestCaseId)).GroupBy(item => NormalizeKey(item.Row.SheetName)))
@@ -320,6 +336,7 @@ public sealed class ManualImportService : IManualImportService
                     ImportBatchSheet = sheet,
                     SourceRowNumber = parsed.SourceRowNumber,
                     TestCaseId = parsed.Row.TestCaseId,
+                    OriginalRawTestCaseId = parsed.Row.OriginalRawTestCaseId,
                     RowJson = JsonSerializer.Serialize(parsed.Row)
                 };
                 sheet.Rows.Add(stagedRow);
@@ -335,6 +352,60 @@ public sealed class ManualImportService : IManualImportService
         batch.RowsAdded = batch.Sheets.Where(sheet => sheet.ConflictStatus == NewStatus).Sum(sheet => sheet.RowCount);
         batch.RowsUpdated = batch.Sheets.Where(sheet => sheet.ConflictStatus == ExistsStatus).Sum(sheet => sheet.RowCount);
         batch.RowsError = errors.Count;
+    }
+
+    private static void ResolveDuplicateIds(IReadOnlyList<ParsedRow> parsedRows, IReadOnlyCollection<string> existingTestCaseIds)
+    {
+        var usedIds = new HashSet<string>(existingTestCaseIds, StringComparer.OrdinalIgnoreCase);
+        foreach (var parsed in parsedRows)
+        {
+            usedIds.Add(parsed.Row.TestCaseId.Trim());
+        }
+
+        var duplicateGroups = parsedRows
+            .GroupBy(item => item.Row.TestCaseId.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1);
+
+        foreach (var group in duplicateGroups)
+        {
+            var occurrences = group.ToList();
+            var baseId = occurrences[0].Row.TestCaseId.Trim();
+            occurrences[0].Row.TestCaseId = baseId;
+            occurrences[0].Row.OriginalRawTestCaseId = null;
+
+            var suffixIndex = 1;
+            for (var i = 1; i < occurrences.Count; i++)
+            {
+                var rawId = occurrences[i].Row.TestCaseId.Trim();
+                usedIds.Remove(rawId);
+                var resolvedId = NextAvailableSuffixedId(baseId, usedIds, ref suffixIndex);
+                occurrences[i].Row.TestCaseId = resolvedId;
+                occurrences[i].Row.OriginalRawTestCaseId = rawId;
+                usedIds.Add(resolvedId);
+            }
+        }
+    }
+
+    private static string NextAvailableSuffixedId(string baseId, HashSet<string> usedIds, ref int suffixIndex)
+    {
+        while (true)
+        {
+            var candidate = baseId + SuffixFor(suffixIndex++);
+            if (!usedIds.Contains(candidate)) return candidate;
+        }
+    }
+
+    private static string SuffixFor(int index)
+    {
+        var value = index;
+        var suffix = string.Empty;
+        while (value > 0)
+        {
+            value--;
+            suffix = (char)('a' + value % 26) + suffix;
+            value /= 26;
+        }
+        return suffix;
     }
 
     private static QaRow ToQaRow(string fileName, string sourceSheetName, IReadOnlyList<string> record, IReadOnlyDictionary<string, List<int>> map, string uploadKind)
@@ -470,6 +541,7 @@ public sealed class ManualImportService : IManualImportService
             }
 
             master.MasterTestNo = row.TestCaseNo;
+            master.MasterOriginalRawId = string.IsNullOrWhiteSpace(row.OriginalRawTestCaseId) ? null : row.OriginalRawTestCaseId;
             master.MasterSourceSheet = row.SheetName;
             master.MasterSourceRow = sourceRowStart;
             master.MasterModules = module.Id;
@@ -562,6 +634,7 @@ public sealed class ManualImportService : IManualImportService
             NewSheets = batch.NewSheets,
             ExistingSheets = batch.ExistingSheets,
             Errors = (transientErrors ?? batch.Errors).Select(error => new ImportBatchErrorResponse { Id = error.Id, RowNumber = error.RowNumber, RawValue = error.RawValue, ErrorMessage = error.ErrorMessage }).ToList(),
+            DuplicateIdsResolved = DuplicateIdResponses(batch),
             Sheets = batch.Sheets.OrderBy(sheet => sheet.SheetName).Select(sheet => new ImportBatchSheetResponse
             {
                 Id = sheet.Id,
@@ -572,6 +645,37 @@ public sealed class ManualImportService : IManualImportService
                 SelectedAction = sheet.SelectedAction
             }).ToList()
         };
+    }
+
+    private static IReadOnlyList<DuplicateIdResolutionResponse> DuplicateIdResponses(QaImportBatch batch)
+    {
+        var duplicateRawIds = batch.Rows
+            .Where(row => !string.IsNullOrWhiteSpace(row.OriginalRawTestCaseId))
+            .Select(row => row.OriginalRawTestCaseId!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (duplicateRawIds.Count == 0) return [];
+
+        var responses = new List<DuplicateIdResolutionResponse>();
+        foreach (var rawId in duplicateRawIds)
+        {
+            responses.AddRange(batch.Rows
+                .Where(row => string.Equals(row.TestCaseId, rawId, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(row.OriginalRawTestCaseId, rawId, StringComparison.OrdinalIgnoreCase))
+                .Select(row => new DuplicateIdResolutionResponse
+                {
+                    RawId = row.OriginalRawTestCaseId ?? row.TestCaseId,
+                    ResolvedId = row.TestCaseId,
+                    SheetName = row.ImportBatchSheet?.SheetName ?? string.Empty,
+                    SourceRowNumber = row.SourceRowNumber
+                }));
+        }
+
+        return responses
+            .DistinctBy(item => (item.RawId.ToUpperInvariant(), item.ResolvedId.ToUpperInvariant(), item.SheetName, item.SourceRowNumber))
+            .OrderBy(item => item.SheetName)
+            .ThenBy(item => item.SourceRowNumber)
+            .ToList();
     }
 
     private static IReadOnlyList<ParsedSheet> ParseSourceSheets(IFormFile file, HashSet<string> selectedSheetNames)
@@ -954,6 +1058,14 @@ public sealed class ManualImportService : IManualImportService
         parsed = new ParsedPrecondition(string.Empty, [], false, false);
         var trimmed = value.Trim();
         if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Equals("All user", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("All roles", StringComparison.OrdinalIgnoreCase)) return true;
+        if (IsGlobalParameter(trimmed)) return true;
+
+        var globalParameter = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(.*?)\s+Global\s+parameter\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (globalParameter.Success && TryExtractRole(globalParameter.Groups[1].Value, out var globalRole, out var globalTrailing, out var globalShared) && string.IsNullOrWhiteSpace(globalTrailing))
+        {
+            parsed = new ParsedPrecondition(globalRole, [], globalShared, false);
+            return true;
+        }
 
         var paren = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(.*?)\s*\((.+)\)\s*$");
         if (paren.Success && TryExtractRole(paren.Groups[1].Value, out var parenRole, out _, out var parenShared))
@@ -1026,6 +1138,7 @@ public sealed class ManualImportService : IManualImportService
     private static IReadOnlyList<string> SplitTestingTypes(string value) => value.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     private static string NormalizeTestingType(string value) => value.Trim().Equals("Tomcat_Regression", StringComparison.OrdinalIgnoreCase) ? "Tomcat_Reg" : value.Trim();
     private static string NormalizeClientCode(string value) => value.Trim().ToUpperInvariant().Replace(" ", string.Empty).Replace("&", "N");
+    private static bool IsGlobalParameter(string value) => value.Trim().Equals("Global parameter", StringComparison.OrdinalIgnoreCase);
     private static string NormalizeText(string value) => value.Replace("\r\n", "\n").Replace('\r', '\n');
     private static string NormalizeCell(string? value) => NormalizeText(value ?? string.Empty).Trim();
     private static readonly string[] KnownTestingTypes = ["Basic", "Mock", "Browser", "Regression", "Tomcat_Reg"];

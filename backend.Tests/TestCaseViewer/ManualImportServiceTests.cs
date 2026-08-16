@@ -217,6 +217,96 @@ public sealed class ManualImportServiceTests
         Assert.Contains(lseMaster.Clients, item => item.ClientId == lse.Id);
     }
 
+    [Fact]
+    public async Task UploadMasterAsync_AutoSuffixesDuplicateIdsAsInformationalDryRun()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+
+        var batch = await service.UploadMasterAsync(File("duplicates.tsv", Tsv(
+            ["Test Case ID", "Module/Sub Module"],
+            ["TC_DUP_001", "Contact Support"],
+            ["TC_DUP_001", "Contact Support"])), null);
+
+        Assert.Equal(0, batch.RowsError);
+        Assert.Equal(2, batch.RowsAdded);
+        Assert.Collection(batch.DuplicateIdsResolved,
+            item =>
+            {
+                Assert.Equal("TC_DUP_001", item.RawId);
+                Assert.Equal("TC_DUP_001", item.ResolvedId);
+            },
+            item =>
+            {
+                Assert.Equal("TC_DUP_001", item.RawId);
+                Assert.Equal("TC_DUP_001a", item.ResolvedId);
+            });
+
+        await service.CommitAsync(batch.BatchId);
+
+        var first = await db.MasterTemplates.SingleAsync(item => item.MasterTestId == "TC_DUP_001");
+        var suffixed = await db.MasterTemplates.SingleAsync(item => item.MasterTestId == "TC_DUP_001a");
+        Assert.Null(first.MasterOriginalRawId);
+        Assert.Equal("TC_DUP_001", suffixed.MasterOriginalRawId);
+    }
+
+    [Fact]
+    public async Task UploadMasterAsync_SkipsCommittedAndBatchSuffixCollisions()
+    {
+        await using var db = CreateDbContext();
+        db.MasterTemplates.Add(new MasterTemplate { MasterTestId = "TC_DUP_002a" });
+        await db.SaveChangesAsync();
+        var service = new ManualImportService(db);
+
+        var batch = await service.UploadMasterAsync(File("duplicates.tsv", Tsv(
+            ["Test Case ID", "Module/Sub Module"],
+            ["TC_DUP_002", "Contact Support"],
+            ["TC_DUP_002", "Contact Support"],
+            ["TC_DUP_002b", "Contact Support"])), null);
+
+        Assert.Equal(0, batch.RowsError);
+        Assert.Contains(batch.DuplicateIdsResolved, item => item.RawId == "TC_DUP_002" && item.ResolvedId == "TC_DUP_002c");
+    }
+
+    [Fact]
+    public async Task UploadMasterAsync_ContinuesDuplicateSuffixesAfterZ()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+        var rows = new List<string[]> { new[] { "Test Case ID", "Module/Sub Module" } };
+        for (var i = 0; i < 28; i++)
+        {
+            rows.Add(new[] { "TC_DUP_003", "Contact Support" });
+        }
+
+        var batch = await service.UploadMasterAsync(File("duplicates.tsv", Tsv(rows.ToArray())), null);
+
+        Assert.Equal(0, batch.RowsError);
+        Assert.Contains(batch.DuplicateIdsResolved, item => item.ResolvedId == "TC_DUP_003z");
+        Assert.Contains(batch.DuplicateIdsResolved, item => item.ResolvedId == "TC_DUP_003aa");
+    }
+
+    [Fact]
+    public async Task CommitAsync_ParsesGlobalParameterAsClientWildcard()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+        var batch = await service.UploadMasterAsync(File("global.tsv", Tsv(
+            ["Test Case ID", "Module/Sub Module", "Preconditions"],
+            ["TC_GLOBAL_001", "Contact Support", "Global parameter"],
+            ["TC_GLOBAL_002", "Contact Support", "Author Role Global parameter"])), null);
+
+        Assert.Equal(0, batch.RowsError);
+        await service.CommitAsync(batch.BatchId);
+
+        var wildcard = await db.MasterTemplates.Include(item => item.Clients).SingleAsync(item => item.MasterTestId == "TC_GLOBAL_001");
+        var authorWildcard = await db.MasterTemplates.Include(item => item.Clients).SingleAsync(item => item.MasterTestId == "TC_GLOBAL_002");
+        Assert.Null(wildcard.MasterPreconditionRole);
+        Assert.Empty(wildcard.Clients);
+        Assert.Equal(1, authorWildcard.MasterPreconditionRole);
+        Assert.Empty(authorWildcard.Clients);
+    }
+
     private static SupportDbContext CreateDbContext()
     {
         var connection = new SqliteConnection("DataSource=:memory:");

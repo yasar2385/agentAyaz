@@ -17,6 +17,7 @@ public sealed class ImportBatchResponse
     public int ExistingSheets { get; set; }
     public IReadOnlyList<ImportBatchSheetResponse> Sheets { get; set; } = [];
     public IReadOnlyList<ImportBatchErrorResponse> Errors { get; set; } = [];
+    public IReadOnlyList<DuplicateIdResolutionResponse> DuplicateIdsResolved { get; set; } = [];
 }
 
 public sealed class ImportBatchSheetResponse
@@ -35,6 +36,14 @@ public sealed class ImportBatchErrorResponse
     public int RowNumber { get; set; }
     public string RawValue { get; set; } = string.Empty;
     public string ErrorMessage { get; set; } = string.Empty;
+}
+
+public sealed class DuplicateIdResolutionResponse
+{
+    public string RawId { get; set; } = string.Empty;
+    public string ResolvedId { get; set; } = string.Empty;
+    public string SheetName { get; set; } = string.Empty;
+    public int SourceRowNumber { get; set; }
 }
 
 public sealed class ImportInspectResponse

@@ -177,6 +177,7 @@ public sealed class SupportDbContext : DbContext
         {
             entity.HasKey(x => x.Id);
             entity.Property(x => x.TestCaseId).IsRequired();
+            entity.Property(x => x.OriginalRawTestCaseId);
             entity.Property(x => x.RowJson).IsRequired();
             entity.HasIndex(x => new { x.ImportBatchId, x.TestCaseId }).IsUnique();
 
@@ -317,6 +318,7 @@ public sealed class SupportDbContext : DbContext
             entity.HasKey(x => x.MasterId);
             entity.HasIndex(x => x.MasterTestId).IsUnique();
             entity.Property(x => x.MasterTestId).IsRequired();
+            entity.Property(x => x.MasterOriginalRawId);
             entity.Property(x => x.MasterTestNo).IsRequired();
             entity.Property(x => x.MasterSourceSheet).IsRequired();
             entity.Property(x => x.MasterPreparedBy).IsRequired();

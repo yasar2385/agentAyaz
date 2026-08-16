@@ -14,6 +14,18 @@ namespace ImpactSupport.Api.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.CreateTable(
+                name: "ClientAliases",
+                columns: table => new
+                {
+                    Alias = table.Column<string>(type: "TEXT", nullable: false),
+                    ClientId = table.Column<int>(type: "INTEGER", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ClientAliases", x => x.Alias);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "Clients",
                 columns: table => new
                 {
@@ -122,6 +134,7 @@ namespace ImpactSupport.Api.Migrations
                     MasterDtdType = table.Column<int>(type: "INTEGER", nullable: true),
                     MasterRoleWorkflow = table.Column<int>(type: "INTEGER", nullable: true),
                     MasterIsCollaborative = table.Column<bool>(type: "INTEGER", nullable: false),
+                    MasterIsSharedRole = table.Column<bool>(type: "INTEGER", nullable: false),
                     MasterPreparedBy = table.Column<string>(type: "TEXT", nullable: false),
                     MasterPreparedDate = table.Column<string>(type: "TEXT", nullable: false),
                     MasterTestData = table.Column<string>(type: "TEXT", nullable: false),
@@ -136,6 +149,18 @@ namespace ImpactSupport.Api.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_MasterTemplate", x => x.MasterId);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "MasterTestingTypeAliases",
+                columns: table => new
+                {
+                    Alias = table.Column<string>(type: "TEXT", nullable: false),
+                    TestingTypeId = table.Column<int>(type: "INTEGER", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_MasterTestingTypeAliases", x => x.Alias);
                 });
 
             migrationBuilder.CreateTable(
@@ -366,6 +391,24 @@ namespace ImpactSupport.Api.Migrations
                 constraints: table =>
                 {
                     table.PrimaryKey("PK_Types", x => x.Id);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "MasterTemplateClients",
+                columns: table => new
+                {
+                    MasterId = table.Column<int>(type: "INTEGER", nullable: false),
+                    ClientId = table.Column<int>(type: "INTEGER", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_MasterTemplateClients", x => new { x.MasterId, x.ClientId });
+                    table.ForeignKey(
+                        name: "FK_MasterTemplateClients_MasterTemplate_MasterId",
+                        column: x => x.MasterId,
+                        principalTable: "MasterTemplate",
+                        principalColumn: "MasterId",
+                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateTable(
@@ -767,6 +810,26 @@ namespace ImpactSupport.Api.Migrations
                 });
 
             migrationBuilder.InsertData(
+                table: "ClientAliases",
+                columns: new[] { "Alias", "ClientId" },
+                values: new object[,]
+                {
+                    { "OxfordMed", 2 },
+                    { "T & F", 3 },
+                    { "T&F", 3 }
+                });
+
+            migrationBuilder.InsertData(
+                table: "Clients",
+                columns: new[] { "Id", "Code", "Name" },
+                values: new object[,]
+                {
+                    { 1, "OSO", "OSO" },
+                    { 2, "OXMEDO", "OxfordMed" },
+                    { 3, "TNF", "T & F" }
+                });
+
+            migrationBuilder.InsertData(
                 table: "DtdType",
                 columns: new[] { "Id", "Value" },
                 values: new object[,]
@@ -819,6 +882,11 @@ namespace ImpactSupport.Api.Migrations
                     { 4, "Rejected" },
                     { 5, "WIP" }
                 });
+
+            migrationBuilder.InsertData(
+                table: "MasterTestingTypeAliases",
+                columns: new[] { "Alias", "TestingTypeId" },
+                values: new object[] { "Tomcat_Regression", 5 });
 
             migrationBuilder.InsertData(
                 table: "MasterTestingTypes",
@@ -1070,6 +1138,9 @@ namespace ImpactSupport.Api.Migrations
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.DropTable(
+                name: "ClientAliases");
+
+            migrationBuilder.DropTable(
                 name: "Clients");
 
             migrationBuilder.DropTable(
@@ -1091,6 +1162,9 @@ namespace ImpactSupport.Api.Migrations
                 name: "MasterQaStatuses");
 
             migrationBuilder.DropTable(
+                name: "MasterTemplateClients");
+
+            migrationBuilder.DropTable(
                 name: "MasterTemplateRemarks");
 
             migrationBuilder.DropTable(
@@ -1098,6 +1172,9 @@ namespace ImpactSupport.Api.Migrations
 
             migrationBuilder.DropTable(
                 name: "MasterTestDetails");
+
+            migrationBuilder.DropTable(
+                name: "MasterTestingTypeAliases");
 
             migrationBuilder.DropTable(
                 name: "MasterTestingTypes");

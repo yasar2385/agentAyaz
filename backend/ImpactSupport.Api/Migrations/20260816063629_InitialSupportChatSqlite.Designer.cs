@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace ImpactSupport.Api.Migrations
 {
     [DbContext(typeof(SupportDbContext))]
-    [Migration("20260815165959_InitialSupportChatSqlite")]
+    [Migration("20260816063629_InitialSupportChatSqlite")]
     partial class InitialSupportChatSqlite
     {
         /// <inheritdoc />
@@ -155,6 +155,56 @@ namespace ImpactSupport.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("Clients", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1,
+                            Code = "OSO",
+                            Name = "OSO"
+                        },
+                        new
+                        {
+                            Id = 2,
+                            Code = "OXMEDO",
+                            Name = "OxfordMed"
+                        },
+                        new
+                        {
+                            Id = 3,
+                            Code = "TNF",
+                            Name = "T & F"
+                        });
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.ClientAlias", b =>
+                {
+                    b.Property<string>("Alias")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ClientId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Alias");
+
+                    b.ToTable("ClientAliases", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Alias = "T & F",
+                            ClientId = 3
+                        },
+                        new
+                        {
+                            Alias = "T&F",
+                            ClientId = 3
+                        },
+                        new
+                        {
+                            Alias = "OxfordMed",
+                            ClientId = 2
+                        });
                 });
 
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.ContentType", b =>
@@ -429,6 +479,9 @@ namespace ImpactSupport.Api.Migrations
                     b.Property<bool>("MasterIsCollaborative")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("MasterIsSharedRole")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int?>("MasterIssueType")
                         .HasColumnType("INTEGER");
 
@@ -483,6 +536,19 @@ namespace ImpactSupport.Api.Migrations
                         .IsUnique();
 
                     b.ToTable("MasterTemplate", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateClient", b =>
+                {
+                    b.Property<int>("MasterId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ClientId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("MasterId", "ClientId");
+
+                    b.ToTable("MasterTemplateClients", (string)null);
                 });
 
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateRemark", b =>
@@ -585,6 +651,26 @@ namespace ImpactSupport.Api.Migrations
                         {
                             Id = 5,
                             Value = "Tomcat_Reg"
+                        });
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTestingTypeAlias", b =>
+                {
+                    b.Property<string>("Alias")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TestingTypeId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Alias");
+
+                    b.ToTable("MasterTestingTypeAliases", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Alias = "Tomcat_Regression",
+                            TestingTypeId = 5
                         });
                 });
 
@@ -1468,6 +1554,17 @@ namespace ImpactSupport.Api.Migrations
                     b.Navigation("SupportSession");
                 });
 
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateClient", b =>
+                {
+                    b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplate", "MasterTemplate")
+                        .WithMany("Clients")
+                        .HasForeignKey("MasterId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("MasterTemplate");
+                });
+
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateRemark", b =>
                 {
                     b.HasOne("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplate", "MasterTemplate")
@@ -1655,6 +1752,8 @@ namespace ImpactSupport.Api.Migrations
 
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplate", b =>
                 {
+                    b.Navigation("Clients");
+
                     b.Navigation("Details");
 
                     b.Navigation("Remarks");

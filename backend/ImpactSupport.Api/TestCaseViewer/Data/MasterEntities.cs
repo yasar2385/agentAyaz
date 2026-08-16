@@ -4,6 +4,7 @@ public sealed class MasterTemplate
 {
     public int MasterId { get; set; }
     public string MasterTestId { get; set; } = string.Empty;
+    public string? MasterOriginalRawId { get; set; }
     public string MasterTestNo { get; set; } = string.Empty;
     public string MasterSourceSheet { get; set; } = string.Empty;
     public int MasterSourceRow { get; set; }

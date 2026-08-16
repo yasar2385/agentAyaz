@@ -478,6 +478,37 @@ function ManualUploadPanel({ user, loading, onSetLoading, onError, onCommitted }
 
       <ImportSummary batch={activeBatch} />
 
+      {(activeBatch?.duplicateIdsResolved?.length ?? 0) > 0 && (
+        <section className="upload-review">
+          <div className="section-heading">
+            <h2>Duplicate Test Case IDs</h2>
+            <span>Informational</span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Source row</th>
+                  <th>Sheet/Page</th>
+                  <th>Raw ID</th>
+                  <th>Resolved ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeBatch.duplicateIdsResolved.map(item => (
+                  <tr key={`${item.sheetName}-${item.sourceRowNumber}-${item.rawId}-${item.resolvedId}`}>
+                    <td>{item.sourceRowNumber}</td>
+                    <td>{item.sheetName}</td>
+                    <td>{item.rawId}</td>
+                    <td>{item.resolvedId}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {masterInspect && masterInspect.sourceType === 'XLSX workbook' && (
         <section className="upload-review">
           <div className="section-heading">
