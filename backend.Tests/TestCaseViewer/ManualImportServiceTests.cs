@@ -171,6 +171,52 @@ public sealed class ManualImportServiceTests
         Assert.DoesNotContain(batch.Sheets, sheet => sheet.SheetName == "Billing");
     }
 
+    [Fact]
+    public async Task CommitAsync_NormalizesTestingTypeAliasAndSharedRole()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+        var batch = await service.UploadMasterAsync(File("shared.tsv", Tsv(
+            ["Test Case ID", "Module/Sub Module", "Preconditions", "Type of testing"],
+            ["TC_SHARED_001", "Contact Support", "Shared Author Role Role", "Tomcat_Regression"])), null);
+
+        Assert.Equal(0, batch.RowsError);
+        await service.CommitAsync(batch.BatchId);
+
+        var master = await db.MasterTemplates.Include(item => item.TestingTypes).SingleAsync(item => item.MasterTestId == "TC_SHARED_001");
+        Assert.True(master.MasterIsSharedRole);
+        Assert.Equal(1, master.MasterPreconditionRole);
+        Assert.Contains(master.TestingTypes, item => item.TestingTypeId == 5);
+    }
+
+    [Fact]
+    public async Task CommitAsync_ResolvesClientAliasesAndMultiClientBooks()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+        var batch = await service.UploadMasterAsync(File("clients.tsv", Tsv(
+            ["Test Case ID", "Module/Sub Module", "Preconditions", "Type of testing"],
+            ["TC_CLIENT_001", "Contact Support", "Author Role OSO & OxfordMed books", "Regression"],
+            ["TC_CLIENT_002", "Contact Support", "Author Role (T & F)", "Regression"],
+            ["TC_CLIENT_003", "Contact Support", "Author Role LSE books", "Regression"])), null);
+
+        Assert.Equal(0, batch.RowsError);
+        await service.CommitAsync(batch.BatchId);
+
+        var multi = await db.MasterTemplates.Include(item => item.Clients).SingleAsync(item => item.MasterTestId == "TC_CLIENT_001");
+        Assert.True(multi.MasterIsCollaborative);
+        Assert.Equal(2, multi.Clients.Count);
+        Assert.Contains(multi.Clients, item => item.ClientId == 1);
+        Assert.Contains(multi.Clients, item => item.ClientId == 2);
+
+        var tnf = await db.MasterTemplates.Include(item => item.Clients).SingleAsync(item => item.MasterTestId == "TC_CLIENT_002");
+        Assert.Contains(tnf.Clients, item => item.ClientId == 3);
+
+        var lse = await db.Clients.SingleAsync(item => item.Code == "LSE");
+        var lseMaster = await db.MasterTemplates.Include(item => item.Clients).SingleAsync(item => item.MasterTestId == "TC_CLIENT_003");
+        Assert.Contains(lseMaster.Clients, item => item.ClientId == lse.Id);
+    }
+
     private static SupportDbContext CreateDbContext()
     {
         var connection = new SqliteConnection("DataSource=:memory:");

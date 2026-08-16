@@ -377,7 +377,7 @@ public sealed class ManualImportService : IManualImportService
         if (!PreconditionIsRecognized(row.Preconditions)) errors.Add($"Unrecognized Preconditions value: '{row.Preconditions}'");
         foreach (var testingType in SplitTestingTypes(row.TestingType))
         {
-            if (!KnownTestingTypes.Contains(testingType, StringComparer.OrdinalIgnoreCase)) errors.Add($"Unknown Type of testing value: '{testingType}'");
+            if (!KnownTestingTypes.Contains(NormalizeTestingType(testingType), StringComparer.OrdinalIgnoreCase)) errors.Add($"Unknown Type of testing value: '{testingType}'");
         }
         return errors;
     }
@@ -456,11 +456,12 @@ public sealed class ManualImportService : IManualImportService
         foreach (var row in rows)
         {
             var module = await GetOrCreateModuleAsync(row.Module, cancellationToken);
-            var (roleId, clientId) = await ResolvePreconditionsAsync(row.Preconditions, cancellationToken);
+            var precondition = await ResolvePreconditionsAsync(row.Preconditions, cancellationToken);
             var master = await _dbContext.MasterTemplates
                 .Include(item => item.Details)
                 .Include(item => item.TestingTypes)
                 .Include(item => item.Remarks)
+                .Include(item => item.Clients)
                 .FirstOrDefaultAsync(item => item.MasterTestId == row.TestCaseId, cancellationToken);
             if (master == null)
             {
@@ -472,8 +473,9 @@ public sealed class ManualImportService : IManualImportService
             master.MasterSourceSheet = row.SheetName;
             master.MasterSourceRow = sourceRowStart;
             master.MasterModules = module.Id;
-            master.MasterPreconditionRole = roleId;
-            master.MasterClient = clientId;
+            master.MasterPreconditionRole = precondition.RoleId;
+            master.MasterClient = precondition.ClientIds.Count > 0 ? precondition.ClientIds[0] : null;
+            master.MasterType = precondition.MasterTypeId;
             master.MasterPreparedBy = row.PreparedBy;
             master.MasterPreparedDate = row.PreparedDate;
             master.MasterTestData = NormalizeText(row.TestData);
@@ -482,7 +484,8 @@ public sealed class ManualImportService : IManualImportService
             master.MasterIssueType = await ResolveClosedLookupAsync(_dbContext.MasterIssueTypes, row.IssueType, cancellationToken);
             master.MasterQaStatus = await ResolveClosedLookupAsync(_dbContext.MasterQaStatuses, row.QaStatus, cancellationToken);
             master.MasterDevStatus = await ResolveClosedLookupAsync(_dbContext.MasterDevStatuses, row.DevStatus, cancellationToken);
-            master.MasterIsCollaborative = false;
+            master.MasterIsSharedRole = precondition.IsSharedRole;
+            master.MasterIsCollaborative = precondition.IsBook && precondition.ClientCodes.Any(code => code is "OSO" or "OXMEDO");
             master.MasterUpdatedAt = DateTimeOffset.UtcNow;
             master.Details ??= new MasterTestDetails { MasterTemplate = master };
             master.Details.MasterDescription = NormalizeText(row.Description);
@@ -500,6 +503,12 @@ public sealed class ManualImportService : IManualImportService
                 var dev = i < row.DevRemarks.Count ? row.DevRemarks[i] : string.Empty;
                 if (string.IsNullOrWhiteSpace(qa) && string.IsNullOrWhiteSpace(dev)) continue;
                 master.Remarks.Add(new MasterTemplateRemark { RoundNumber = i + 1, QaRemark = qa, DevRemark = dev });
+            }
+
+            master.Clients.Clear();
+            foreach (var clientId in precondition.ClientIds.Distinct())
+            {
+                master.Clients.Add(new MasterTemplateClient { ClientId = clientId });
             }
         }
     }
@@ -859,22 +868,7 @@ public sealed class ManualImportService : IManualImportService
 
     private static bool PreconditionIsRecognized(string value)
     {
-        var trimmed = value.Trim();
-        if (string.IsNullOrWhiteSpace(trimmed)) return true;
-        if (trimmed.Equals("All user", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("All roles", StringComparison.OrdinalIgnoreCase)) return true;
-        var roleText = trimmed;
-        var paren = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(.*?)\s*\(([A-Za-z0-9]+)\)\s*$");
-        if (paren.Success)
-        {
-            roleText = paren.Groups[1].Value;
-        }
-        else if (trimmed.Contains('_'))
-        {
-            roleText = trimmed.Split('_', 2)[0];
-        }
-
-        roleText = System.Text.RegularExpressions.Regex.Replace(roleText, @"\s*role\s*$", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
-        return new[] { "Author", "PE", "Collator", "Editor" }.Any(role => role.Equals(roleText, StringComparison.OrdinalIgnoreCase));
+        return TryParsePrecondition(value, out var parsed) && (string.IsNullOrWhiteSpace(parsed.Role) || KnownRoles.Contains(parsed.Role, StringComparer.OrdinalIgnoreCase));
     }
 
     private async Task<MasterModule> GetOrCreateModuleAsync(string value, CancellationToken cancellationToken)
@@ -888,31 +882,27 @@ public sealed class ManualImportService : IManualImportService
         return module;
     }
 
-    private async Task<(int? RoleId, int? ClientId)> ResolvePreconditionsAsync(string value, CancellationToken cancellationToken)
+    private async Task<ResolvedPrecondition> ResolvePreconditionsAsync(string value, CancellationToken cancellationToken)
     {
-        var trimmed = value.Trim();
-        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Equals("All user", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("All roles", StringComparison.OrdinalIgnoreCase)) return (null, null);
-        var role = trimmed;
-        string client = string.Empty;
-        var paren = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(.*?)\s*\(([A-Za-z0-9]+)\)\s*$");
-        if (paren.Success) { role = paren.Groups[1].Value; client = paren.Groups[2].Value; }
-        else if (trimmed.Contains('_')) { var parts = trimmed.Split('_', 2); role = parts[0]; client = parts[1]; }
-        role = System.Text.RegularExpressions.Regex.Replace(role, @"\s*role\s*$", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
-        var roleId = await ResolveClosedLookupAsync(_dbContext.MasterPreconditionRoles, role, cancellationToken);
-        int? clientId = null;
-        if (!string.IsNullOrWhiteSpace(client))
+        if (!TryParsePrecondition(value, out var parsed))
         {
-            var code = client.Trim().ToUpperInvariant();
-            var row = await _dbContext.Clients.FirstOrDefaultAsync(item => item.Code == code, cancellationToken);
-            if (row == null)
-            {
-                row = new Client { Code = code, Name = code };
-                _dbContext.Clients.Add(row);
-                await _dbContext.SaveChangesAsync(cancellationToken);
-            }
-            clientId = row.Id;
+            return new ResolvedPrecondition(null, [], [], false, false, null);
         }
-        return (roleId, clientId);
+
+        var roleId = string.IsNullOrWhiteSpace(parsed.Role)
+            ? null
+            : await ResolveClosedLookupAsync(_dbContext.MasterPreconditionRoles, parsed.Role, cancellationToken);
+        var clientIds = new List<int>();
+        var clientCodes = new List<string>();
+        foreach (var token in parsed.ClientTokens)
+        {
+            var client = await ResolveClientAsync(token, cancellationToken);
+            clientIds.Add(client.Id);
+            clientCodes.Add(client.Code);
+        }
+
+        var typeId = parsed.IsBook ? await ResolveClosedLookupAsync(_dbContext.Types, "Book", cancellationToken) : null;
+        return new ResolvedPrecondition(roleId, clientIds, clientCodes, parsed.IsSharedRole, parsed.IsBook, typeId);
     }
 
     private static async Task<int?> ResolveClosedLookupAsync<T>(DbSet<T> set, string value, CancellationToken cancellationToken) where T : class
@@ -929,16 +919,128 @@ public sealed class ManualImportService : IManualImportService
         var ids = new List<int>();
         foreach (var type in SplitTestingTypes(value))
         {
-            var id = await ResolveClosedLookupAsync(_dbContext.MasterTestingTypes, type, cancellationToken);
+            var id = await ResolveTestingTypeIdAsync(type, cancellationToken);
             if (id.HasValue) ids.Add(id.Value);
         }
         return ids;
     }
 
+    private async Task<int?> ResolveTestingTypeIdAsync(string value, CancellationToken cancellationToken)
+    {
+        var normalized = NormalizeTestingType(value);
+        var id = await ResolveClosedLookupAsync(_dbContext.MasterTestingTypes, normalized, cancellationToken);
+        if (id.HasValue) return id;
+        var alias = await _dbContext.MasterTestingTypeAliases.AsNoTracking().FirstOrDefaultAsync(item => item.Alias == value.Trim(), cancellationToken);
+        return alias?.TestingTypeId;
+    }
+
+    private async Task<Client> ResolveClientAsync(string value, CancellationToken cancellationToken)
+    {
+        var trimmed = value.Trim();
+        var code = NormalizeClientCode(trimmed);
+        var client = await _dbContext.Clients.FirstOrDefaultAsync(item => item.Code == code, cancellationToken);
+        if (client != null) return client;
+        var alias = await _dbContext.ClientAliases.AsNoTracking().FirstOrDefaultAsync(item => item.Alias == trimmed, cancellationToken);
+        if (alias != null) return await _dbContext.Clients.FirstAsync(item => item.Id == alias.ClientId, cancellationToken);
+
+        client = new Client { Code = code, Name = trimmed };
+        _dbContext.Clients.Add(client);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return client;
+    }
+
+    private static bool TryParsePrecondition(string value, out ParsedPrecondition parsed)
+    {
+        parsed = new ParsedPrecondition(string.Empty, [], false, false);
+        var trimmed = value.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Equals("All user", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("All roles", StringComparison.OrdinalIgnoreCase)) return true;
+
+        var paren = System.Text.RegularExpressions.Regex.Match(trimmed, @"^(.*?)\s*\((.+)\)\s*$");
+        if (paren.Success && TryExtractRole(paren.Groups[1].Value, out var parenRole, out _, out var parenShared))
+        {
+            parsed = new ParsedPrecondition(parenRole, SplitClientTokens(paren.Groups[2].Value), parenShared, false);
+            return true;
+        }
+
+        if (trimmed.Contains('_'))
+        {
+            var parts = trimmed.Split('_', 2);
+            if (TryExtractRole(parts[0], out var underscoreRole, out _, out var underscoreShared))
+            {
+                parsed = new ParsedPrecondition(underscoreRole, SplitClientTokens(parts[1]), underscoreShared, false);
+                return true;
+            }
+        }
+
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"\s+books\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+            && TryExtractRole(System.Text.RegularExpressions.Regex.Replace(trimmed, @"\s+books\s*$", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase), out var bookRole, out var remainder, out var bookShared))
+        {
+            parsed = new ParsedPrecondition(bookRole, SplitClientTokens(remainder), bookShared, true);
+            return true;
+        }
+
+        if (TryExtractRole(trimmed, out var role, out var trailing, out var shared) && string.IsNullOrWhiteSpace(trailing))
+        {
+            parsed = new ParsedPrecondition(role, [], shared, false);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool TryExtractRole(string value, out string role, out string remainder, out bool isShared)
+    {
+        var normalized = System.Text.RegularExpressions.Regex.Replace(value.Trim(), @"(\s+Role)+", " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+        foreach (var candidate in RolePrefixes.OrderByDescending(item => item.Raw.Length))
+        {
+            if (normalized.Equals(candidate.Raw, StringComparison.OrdinalIgnoreCase))
+            {
+                role = candidate.Role;
+                remainder = string.Empty;
+                isShared = candidate.Shared;
+                return true;
+            }
+
+            if (normalized.StartsWith(candidate.Raw + " ", StringComparison.OrdinalIgnoreCase))
+            {
+                role = candidate.Role;
+                remainder = normalized[(candidate.Raw.Length + 1)..].Trim();
+                isShared = candidate.Shared;
+                return true;
+            }
+        }
+
+        role = string.Empty;
+        remainder = value;
+        isShared = false;
+        return false;
+    }
+
+    private static IReadOnlyList<string> SplitClientTokens(string value)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Equals("T & F", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("T&F", StringComparison.OrdinalIgnoreCase)) return [trimmed];
+        return trimmed.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
     private static IReadOnlyList<string> SplitTestingTypes(string value) => value.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    private static string NormalizeTestingType(string value) => value.Trim().Equals("Tomcat_Regression", StringComparison.OrdinalIgnoreCase) ? "Tomcat_Reg" : value.Trim();
+    private static string NormalizeClientCode(string value) => value.Trim().ToUpperInvariant().Replace(" ", string.Empty).Replace("&", "N");
     private static string NormalizeText(string value) => value.Replace("\r\n", "\n").Replace('\r', '\n');
     private static string NormalizeCell(string? value) => NormalizeText(value ?? string.Empty).Trim();
     private static readonly string[] KnownTestingTypes = ["Basic", "Mock", "Browser", "Regression", "Tomcat_Reg"];
+    private static readonly string[] KnownRoles = ["Author", "PE", "Collator", "Editor"];
+    private static readonly (string Raw, string Role, bool Shared)[] RolePrefixes =
+    [
+        ("Shared Author", "Author", true),
+        ("Shared Editor", "Editor", true),
+        ("Shared Collator", "Collator", true),
+        ("Co Author", "Author", true),
+        ("Author", "Author", false),
+        ("Collator", "Collator", false),
+        ("Editor", "Editor", false),
+        ("PE", "PE", false)
+    ];
 
     private static string TempUploadDirectory() => Path.Combine(Path.GetTempPath(), "impact-testcaseviewer-imports");
     private static string MetadataPath(string token) => Path.Combine(TempUploadDirectory(), $"{token}.json");
@@ -989,6 +1091,8 @@ public sealed class ManualImportService : IManualImportService
     private sealed record ParsedUpload(IReadOnlyList<ParsedRow> Rows, IReadOnlyList<QaImportBatchError> Errors);
     private sealed record ParsedRow(QaRow Row, int SourceRowNumber);
     private sealed record ParsedSheet(string SourceName, List<List<string>> Records);
+    private sealed record ParsedPrecondition(string Role, IReadOnlyList<string> ClientTokens, bool IsSharedRole, bool IsBook);
+    private sealed record ResolvedPrecondition(int? RoleId, IReadOnlyList<int> ClientIds, IReadOnlyList<string> ClientCodes, bool IsSharedRole, bool IsBook, int? MasterTypeId);
     private sealed class TempUploadMetadata
     {
         public string Token { get; set; } = string.Empty;

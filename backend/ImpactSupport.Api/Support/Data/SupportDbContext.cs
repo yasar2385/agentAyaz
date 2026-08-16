@@ -32,16 +32,19 @@ public sealed class SupportDbContext : DbContext
     public DbSet<MasterModule> MasterModules => Set<MasterModule>();
     public DbSet<MasterPreconditionRole> MasterPreconditionRoles => Set<MasterPreconditionRole>();
     public DbSet<MasterTestingType> MasterTestingTypes => Set<MasterTestingType>();
+    public DbSet<MasterTestingTypeAlias> MasterTestingTypeAliases => Set<MasterTestingTypeAlias>();
     public DbSet<MasterIssueType> MasterIssueTypes => Set<MasterIssueType>();
     public DbSet<MasterQaStatus> MasterQaStatuses => Set<MasterQaStatus>();
     public DbSet<MasterDevStatus> MasterDevStatuses => Set<MasterDevStatus>();
     public DbSet<Client> Clients => Set<Client>();
+    public DbSet<ClientAlias> ClientAliases => Set<ClientAlias>();
     public DbSet<RefStyle> RefStyles => Set<RefStyle>();
     public DbSet<RoleWorkflow> RoleWorkflows => Set<RoleWorkflow>();
     public DbSet<ContentType> Types => Set<ContentType>();
     public DbSet<DtdType> DtdTypes => Set<DtdType>();
     public DbSet<TestingUrl> TestingUrls => Set<TestingUrl>();
     public DbSet<MasterTemplateTestingType> MasterTemplateTestingTypes => Set<MasterTemplateTestingType>();
+    public DbSet<MasterTemplateClient> MasterTemplateClients => Set<MasterTemplateClient>();
     public DbSet<MasterTemplateRemark> MasterTemplateRemarks => Set<MasterTemplateRemark>();
     public DbSet<TestingMetaResult> TestingMetaResults => Set<TestingMetaResult>();
     public DbSet<TestingMetaResultLink> TestingMetaResultLinks => Set<TestingMetaResultLink>();
@@ -391,6 +394,33 @@ public sealed class SupportDbContext : DbContext
             entity.HasKey(x => new { x.MasterId, x.TestingTypeId });
             entity.HasOne(x => x.MasterTemplate).WithMany(x => x.TestingTypes).HasForeignKey(x => x.MasterId).OnDelete(DeleteBehavior.Cascade);
         });
+        modelBuilder.Entity<MasterTemplateClient>(entity =>
+        {
+            entity.ToTable("MasterTemplateClients");
+            entity.HasKey(x => new { x.MasterId, x.ClientId });
+            entity.HasOne(x => x.MasterTemplate).WithMany(x => x.Clients).HasForeignKey(x => x.MasterId).OnDelete(DeleteBehavior.Cascade);
+        });
+        modelBuilder.Entity<MasterTestingTypeAlias>(entity =>
+        {
+            entity.ToTable("MasterTestingTypeAliases");
+            entity.HasKey(x => x.Alias);
+            entity.Property(x => x.Alias).IsRequired();
+            entity.HasData(new MasterTestingTypeAlias { Alias = "Tomcat_Regression", TestingTypeId = 5 });
+        });
+        modelBuilder.Entity<ClientAlias>(entity =>
+        {
+            entity.ToTable("ClientAliases");
+            entity.HasKey(x => x.Alias);
+            entity.Property(x => x.Alias).IsRequired();
+            entity.HasData(
+                new ClientAlias { Alias = "T & F", ClientId = 3 },
+                new ClientAlias { Alias = "T&F", ClientId = 3 },
+                new ClientAlias { Alias = "OxfordMed", ClientId = 2 });
+        });
+        modelBuilder.Entity<Client>().HasData(
+            new Client { Id = 1, Code = "OSO", Name = "OSO" },
+            new Client { Id = 2, Code = "OXMEDO", Name = "OxfordMed" },
+            new Client { Id = 3, Code = "TNF", Name = "T & F" });
         modelBuilder.Entity<MasterTemplateRemark>(entity =>
         {
             entity.ToTable("MasterTemplateRemarks");
