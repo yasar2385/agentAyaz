@@ -22,7 +22,7 @@ public sealed class MasterReviewService : IMasterReviewService
             {
                 ModuleId = module.Id,
                 ModuleName = module.Name,
-                TestCaseCount = _dbContext.MasterTemplates.Count(master => master.MasterModules == module.Id)
+                TestCaseCount = _dbContext.MasterTemplates.Count(master => master.MasterModules == module.Id && master.MasterIsActive)
             })
             .Where(module => module.TestCaseCount > 0)
             .OrderBy(module => module.ModuleName)
@@ -33,7 +33,7 @@ public sealed class MasterReviewService : IMasterReviewService
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
-        var query = _dbContext.MasterTemplates.AsNoTracking();
+        var query = _dbContext.MasterTemplates.AsNoTracking().Where(master => master.MasterIsActive);
         if (moduleId.HasValue) query = query.Where(master => master.MasterModules == moduleId);
 
         var total = await query.CountAsync(cancellationToken);
@@ -97,6 +97,44 @@ public sealed class MasterReviewService : IMasterReviewService
     {
         var master = await LoadMasterAsync(masterTestId, asTracking: false, cancellationToken);
         return master == null ? null : await ToDetailAsync(master, cancellationToken);
+    }
+
+    public async Task<MasterTemplateDetailResponse> CreateAsync(MasterTemplateCreateRequest request, AuthUser? user, CancellationToken cancellationToken = default)
+    {
+        EnsureCanEdit(user);
+        var testCaseId = request.MasterTestId.Trim();
+        if (string.IsNullOrWhiteSpace(testCaseId)) throw new ArgumentException("MasterTestId is required.");
+        if (await _dbContext.MasterTemplates.AnyAsync(item => item.MasterTestId == testCaseId, cancellationToken))
+        {
+            throw new ArgumentException($"MasterTestId '{testCaseId}' already exists.");
+        }
+
+        await ValidateIdsAsync(request, cancellationToken);
+        var editedBy = user?.DisplayName ?? user?.Username ?? "unknown";
+        var now = DateTimeOffset.UtcNow;
+        var master = new MasterTemplate
+        {
+            MasterTestId = testCaseId,
+            MasterCreatedAt = now,
+            MasterUpdatedAt = now,
+            MasterUpdatedBy = editedBy,
+            MasterIsActive = true,
+            Details = new MasterTestDetails()
+        };
+        _dbContext.MasterTemplates.Add(master);
+        ApplyCreateValues(master, request);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        _dbContext.MasterTemplateEditHistory.Add(new MasterTemplateEditHistory
+        {
+            MasterId = master.MasterId,
+            FieldName = "Create",
+            OldValue = string.Empty,
+            NewValue = testCaseId,
+            EditedBy = editedBy,
+            EditedAt = now
+        });
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return await ToDetailAsync(master, cancellationToken);
     }
 
     public async Task<MasterTemplateDetailResponse?> UpdateAsync(string masterTestId, MasterTemplateUpdateRequest request, AuthUser? user, CancellationToken cancellationToken = default)
@@ -187,6 +225,32 @@ public sealed class MasterReviewService : IMasterReviewService
         return await ToDetailAsync(master, cancellationToken);
     }
 
+    public async Task<bool> DeleteAsync(string masterTestId, AuthUser? user, CancellationToken cancellationToken = default)
+    {
+        EnsureCanEdit(user);
+        var master = await _dbContext.MasterTemplates.FirstOrDefaultAsync(item => item.MasterTestId == masterTestId && item.MasterIsActive, cancellationToken);
+        if (master == null) return false;
+
+        var editedBy = user?.DisplayName ?? user?.Username ?? "unknown";
+        var now = DateTimeOffset.UtcNow;
+        master.MasterIsActive = false;
+        master.MasterDeletedAt = now;
+        master.MasterDeletedBy = editedBy;
+        master.MasterUpdatedAt = now;
+        master.MasterUpdatedBy = editedBy;
+        _dbContext.MasterTemplateEditHistory.Add(new MasterTemplateEditHistory
+        {
+            MasterId = master.MasterId,
+            FieldName = "Delete",
+            OldValue = "Active",
+            NewValue = "Inactive",
+            EditedBy = editedBy,
+            EditedAt = now
+        });
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     private async Task<MasterTemplate?> LoadMasterAsync(string masterTestId, bool asTracking, CancellationToken cancellationToken)
     {
         var query = _dbContext.MasterTemplates
@@ -195,7 +259,7 @@ public sealed class MasterReviewService : IMasterReviewService
             .Include(item => item.Clients)
             .Include(item => item.Remarks)
             .Include(item => item.EditHistory)
-            .Where(item => item.MasterTestId == masterTestId);
+            .Where(item => item.MasterTestId == masterTestId && item.MasterIsActive);
         if (!asTracking) query = query.AsNoTracking();
         return await query.FirstOrDefaultAsync(cancellationToken);
     }

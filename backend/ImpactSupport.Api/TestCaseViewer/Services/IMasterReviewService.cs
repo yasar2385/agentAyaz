@@ -8,5 +8,7 @@ public interface IMasterReviewService
     Task<MasterTemplateListResponse> GetListAsync(int? moduleId, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<MasterLookupsResponse> GetLookupsAsync(CancellationToken cancellationToken = default);
     Task<MasterTemplateDetailResponse?> GetDetailAsync(string masterTestId, CancellationToken cancellationToken = default);
+    Task<MasterTemplateDetailResponse> CreateAsync(MasterTemplateCreateRequest request, AuthUser? user, CancellationToken cancellationToken = default);
     Task<MasterTemplateDetailResponse?> UpdateAsync(string masterTestId, MasterTemplateUpdateRequest request, AuthUser? user, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(string masterTestId, AuthUser? user, CancellationToken cancellationToken = default);
 }

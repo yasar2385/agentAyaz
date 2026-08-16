@@ -505,9 +505,6 @@ namespace ImpactSupport.Api.Migrations
                     b.Property<int?>("MasterRoleWorkflow")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("MasterUpdatedBy")
-                        .HasColumnType("TEXT");
-
                     b.Property<int>("MasterSourceRow")
                         .HasColumnType("INTEGER");
 
@@ -533,12 +530,28 @@ namespace ImpactSupport.Api.Migrations
                     b.Property<DateTimeOffset>("MasterUpdatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("MasterUpdatedBy")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("MasterId");
 
                     b.HasIndex("MasterTestId")
                         .IsUnique();
 
                     b.ToTable("MasterTemplate", (string)null);
+                });
+
+            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateClient", b =>
+                {
+                    b.Property<int>("MasterId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ClientId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("MasterId", "ClientId");
+
+                    b.ToTable("MasterTemplateClients", (string)null);
                 });
 
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateEditHistory", b =>
@@ -574,19 +587,6 @@ namespace ImpactSupport.Api.Migrations
                     b.HasIndex("MasterId", "EditedAt");
 
                     b.ToTable("MasterTemplateEditHistory", (string)null);
-                });
-
-            modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateClient", b =>
-                {
-                    b.Property<int>("MasterId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("ClientId")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("MasterId", "ClientId");
-
-                    b.ToTable("MasterTemplateClients", (string)null);
                 });
 
             modelBuilder.Entity("ImpactSupport.Api.TestCaseViewer.Data.MasterTemplateRemark", b =>
@@ -1026,11 +1026,11 @@ namespace ImpactSupport.Api.Migrations
                     b.Property<bool>("ManualEditConflict")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("ManualEditLastEditedBy")
-                        .IsRequired()
+                    b.Property<DateTimeOffset?>("ManualEditLastEditedAt")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ManualEditLastEditedAt")
+                    b.Property<string>("ManualEditLastEditedBy")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OriginalRawTestCaseId")
@@ -1821,6 +1821,8 @@ namespace ImpactSupport.Api.Migrations
                     b.Navigation("Clients");
 
                     b.Navigation("Details");
+
+                    b.Navigation("EditHistory");
 
                     b.Navigation("Remarks");
 

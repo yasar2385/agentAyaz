@@ -123,3 +123,8 @@ public sealed class MasterTemplateUpdateRequest
     public IReadOnlyList<int>? ClientIds { get; set; }
     public IReadOnlyList<MasterRemarkResponse>? Remarks { get; set; }
 }
+
+public sealed class MasterTemplateCreateRequest : MasterTemplateUpdateRequest
+{
+    public string MasterTestId { get; set; } = string.Empty;
+}

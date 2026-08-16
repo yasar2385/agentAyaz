@@ -40,6 +40,23 @@ public sealed class MasterReviewController : ControllerBase
         return detail == null ? NotFound() : Ok(detail);
     }
 
+    [HttpPost]
+    public async Task<IActionResult> Create(MasterTemplateCreateRequest request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return Ok(await _masterReviewService.CreateAsync(request, ReadUser(), cancellationToken));
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, new { message = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpPut("{masterTestId}")]
     public async Task<IActionResult> Update(string masterTestId, MasterTemplateUpdateRequest request, CancellationToken cancellationToken)
     {
@@ -59,6 +76,20 @@ public sealed class MasterReviewController : ControllerBase
         catch (ArgumentException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    [HttpDelete("{masterTestId}")]
+    public async Task<IActionResult> Delete(string masterTestId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var deleted = await _masterReviewService.DeleteAsync(Uri.UnescapeDataString(masterTestId), ReadUser(), cancellationToken);
+            return deleted ? Ok(new { deleted = true }) : NotFound();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(403, new { message = ex.Message });
         }
     }
 

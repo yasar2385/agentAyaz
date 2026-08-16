@@ -145,7 +145,8 @@ namespace ImpactSupport.Api.Migrations
                     MasterQaStatus = table.Column<int>(type: "INTEGER", nullable: true),
                     MasterDevStatus = table.Column<int>(type: "INTEGER", nullable: true),
                     MasterCreatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    MasterUpdatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false)
+                    MasterUpdatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                    MasterUpdatedBy = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -406,6 +407,30 @@ namespace ImpactSupport.Api.Migrations
                     table.PrimaryKey("PK_MasterTemplateClients", x => new { x.MasterId, x.ClientId });
                     table.ForeignKey(
                         name: "FK_MasterTemplateClients_MasterTemplate_MasterId",
+                        column: x => x.MasterId,
+                        principalTable: "MasterTemplate",
+                        principalColumn: "MasterId",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "MasterTemplateEditHistory",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "INTEGER", nullable: false)
+                        .Annotation("Sqlite:Autoincrement", true),
+                    MasterId = table.Column<int>(type: "INTEGER", nullable: false),
+                    FieldName = table.Column<string>(type: "TEXT", nullable: false),
+                    OldValue = table.Column<string>(type: "TEXT", nullable: false),
+                    NewValue = table.Column<string>(type: "TEXT", nullable: false),
+                    EditedBy = table.Column<string>(type: "TEXT", nullable: false),
+                    EditedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_MasterTemplateEditHistory", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_MasterTemplateEditHistory_MasterTemplate_MasterId",
                         column: x => x.MasterId,
                         principalTable: "MasterTemplate",
                         principalColumn: "MasterId",
@@ -763,6 +788,10 @@ namespace ImpactSupport.Api.Migrations
                     SourceRowNumber = table.Column<int>(type: "INTEGER", nullable: false),
                     TestCaseId = table.Column<string>(type: "TEXT", nullable: false),
                     OriginalRawTestCaseId = table.Column<string>(type: "TEXT", nullable: true),
+                    ManualEditConflict = table.Column<bool>(type: "INTEGER", nullable: false),
+                    ManualEditAction = table.Column<string>(type: "TEXT", nullable: false),
+                    ManualEditLastEditedBy = table.Column<string>(type: "TEXT", nullable: false),
+                    ManualEditLastEditedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
                     RowJson = table.Column<string>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
@@ -984,6 +1013,11 @@ namespace ImpactSupport.Api.Migrations
                 unique: true);
 
             migrationBuilder.CreateIndex(
+                name: "IX_MasterTemplateEditHistory_MasterId_EditedAt",
+                table: "MasterTemplateEditHistory",
+                columns: new[] { "MasterId", "EditedAt" });
+
+            migrationBuilder.CreateIndex(
                 name: "IX_MasterTemplateRemarks_MasterId",
                 table: "MasterTemplateRemarks",
                 column: "MasterId");
@@ -1165,6 +1199,9 @@ namespace ImpactSupport.Api.Migrations
 
             migrationBuilder.DropTable(
                 name: "MasterTemplateClients");
+
+            migrationBuilder.DropTable(
+                name: "MasterTemplateEditHistory");
 
             migrationBuilder.DropTable(
                 name: "MasterTemplateRemarks");

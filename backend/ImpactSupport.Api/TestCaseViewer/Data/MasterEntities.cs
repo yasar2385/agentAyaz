@@ -16,6 +16,9 @@ public sealed class MasterTemplate
     public int? MasterRoleWorkflow { get; set; }
     public bool MasterIsCollaborative { get; set; }
     public bool MasterIsSharedRole { get; set; }
+    public bool MasterIsActive { get; set; } = true;
+    public DateTimeOffset? MasterDeletedAt { get; set; }
+    public string? MasterDeletedBy { get; set; }
     public string MasterPreparedBy { get; set; } = string.Empty;
     public string MasterPreparedDate { get; set; } = string.Empty;
     public string MasterTestData { get; set; } = string.Empty;
