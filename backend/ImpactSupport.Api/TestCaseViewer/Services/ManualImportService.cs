@@ -1162,7 +1162,7 @@ public sealed class ManualImportService : IManualImportService
 
     private async Task<ParsedModule> ParseModuleAsync(string value, CancellationToken cancellationToken)
     {
-        var raw = value.Trim();
+        var raw = NormalizeStructuredText(value);
         var paren = System.Text.RegularExpressions.Regex.Match(raw, @"^(.*?)\s*\((.+?)\)\s*$");
         if (paren.Success)
         {
@@ -1394,7 +1394,7 @@ public sealed class ManualImportService : IManualImportService
     private static bool TryParsePrecondition(string value, out ParsedPrecondition parsed)
     {
         parsed = new ParsedPrecondition(string.Empty, [], false, false);
-        var trimmed = value.Trim();
+        var trimmed = NormalizeStructuredText(value);
         if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Equals("All user", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("All roles", StringComparison.OrdinalIgnoreCase)) return true;
         if (IsGlobalParameter(trimmed)) return true;
 
@@ -1488,8 +1488,12 @@ public sealed class ManualImportService : IManualImportService
         return trimmed.Equals("THOMSON", StringComparison.OrdinalIgnoreCase) ? "Thomson" : trimmed;
     }
 
-    private static IReadOnlyList<string> SplitTestingTypes(string value) => value.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-    private static string NormalizeTestingType(string value) => value.Trim().Equals("Tomcat_Regression", StringComparison.OrdinalIgnoreCase) ? "Tomcat_Reg" : value.Trim();
+    private static IReadOnlyList<string> SplitTestingTypes(string value) => NormalizeStructuredText(value).Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    private static string NormalizeTestingType(string value)
+    {
+        var normalized = NormalizeStructuredText(value);
+        return normalized.Equals("Tomcat_Regression", StringComparison.OrdinalIgnoreCase) ? "Tomcat_Reg" : normalized;
+    }
     private static string NormalizeClientCode(string value) => value.Trim().ToUpperInvariant().Replace(" ", string.Empty).Replace("&", "N");
     private static string NormalizeTestCaseNo(string value)
     {
@@ -1499,6 +1503,7 @@ public sealed class ManualImportService : IManualImportService
             : trimmed;
     }
     private static bool IsGlobalParameter(string value) => value.Trim().Equals("Global parameter", StringComparison.OrdinalIgnoreCase);
+    private static string NormalizeStructuredText(string value) => System.Text.RegularExpressions.Regex.Replace(NormalizeText(value), @"\s+", " ").Trim();
     private static string NormalizeText(string value) => value.Replace("\r\n", "\n").Replace('\r', '\n');
     private static string NormalizeCell(string? value) => NormalizeText(value ?? string.Empty).Trim();
     private static readonly string[] KnownTestingTypes = ["Basic", "Mock", "Browser", "Regression", "Tomcat_Reg"];

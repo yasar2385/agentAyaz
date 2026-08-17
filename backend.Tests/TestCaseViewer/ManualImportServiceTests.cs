@@ -214,6 +214,41 @@ public sealed class ManualImportServiceTests
     }
 
     [Fact]
+    public async Task UploadMasterAsync_SplitsModuleClientsWithEmbeddedNewlines()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+        var content = string.Join('\n',
+            "Test Case ID\tModule/Sub Module",
+            "TC_NL_001\t\"Landing Page\nLWW\"",
+            "TC_NL_002\t\"Landing Page\nMedknow\"",
+            "TC_NL_003\t\"Landing Page\nOSO\"",
+            "TC_NL_004\t\"Landing Page\nT & F\"",
+            "TC_NL_005\t\"Landing Page\nOxmedo\"");
+
+        var batch = await service.UploadMasterAsync(File("module-newlines.tsv", content), null);
+
+        Assert.Equal(0, batch.RowsError);
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page LWW" && item.Module == "Landing Page" && item.Clients.Contains("LWW") && item.Type == "Journal" && item.Dtd == "JATS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page Medknow" && item.Module == "Landing Page" && item.Clients.Contains("MEDKNOW") && item.Type == "Journal" && item.Dtd == "JATS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page OSO" && item.Module == "Landing Page" && item.Clients.Contains("OSO") && item.Type == "Book" && item.Dtd == "BITS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page T & F" && item.Module == "Landing Page" && item.Clients.Contains("TNF") && item.Type == "Book" && item.Dtd == "BITS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page Oxmedo" && item.Module == "Landing Page" && item.Clients.Contains("OXMEDO") && item.Type == "Book" && item.Dtd == "BITS");
+
+        await service.CommitAsync(batch.BatchId);
+
+        Assert.Single(await db.MasterModules.Where(item => item.Name == "Landing Page").ToListAsync());
+        var lww = await db.MasterTemplates.SingleAsync(item => item.MasterTestId == "TC_NL_001");
+        Assert.Equal(5, lww.MasterClient);
+        Assert.Equal(1, lww.MasterType);
+        Assert.Equal(1, lww.MasterDtdType);
+        var oxmedo = await db.MasterTemplates.SingleAsync(item => item.MasterTestId == "TC_NL_005");
+        Assert.Equal(2, oxmedo.MasterClient);
+        Assert.Equal(2, oxmedo.MasterType);
+        Assert.Equal(2, oxmedo.MasterDtdType);
+    }
+
+    [Fact]
     public async Task FullClientDtdSeed_ContainsExpectedMatrix()
     {
         await using var db = CreateDbContext();
@@ -269,6 +304,23 @@ public sealed class ManualImportServiceTests
         Assert.Equal("Contact Support", contact.MasterSourceSheet);
         Assert.Equal("1", contact.MasterTestNo);
         Assert.Equal("Line one\nLine two", contact.Details?.MasterDescription);
+    }
+
+    [Fact]
+    public async Task UploadMasterAsync_SplitsXlsxModuleClientWithEmbeddedNewline()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+
+        var batch = await service.UploadMasterAsync(XlsxFile("module-newline.xlsx", firstModule: "Landing Page\nLWW"), null);
+
+        Assert.Equal(0, batch.RowsError);
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page LWW" && item.Module == "Landing Page" && item.Clients.Contains("LWW") && item.Type == "Journal" && item.Dtd == "JATS");
+        await service.CommitAsync(batch.BatchId);
+        var master = await db.MasterTemplates.SingleAsync(item => item.MasterTestId == "TC_XLSX_001");
+        Assert.Equal(5, master.MasterClient);
+        Assert.Equal(1, master.MasterType);
+        Assert.Equal(1, master.MasterDtdType);
     }
 
     [Fact]
@@ -495,7 +547,7 @@ public sealed class ManualImportServiceTests
         return new FormFile(new MemoryStream(bytes), 0, bytes.Length, "file", fileName);
     }
 
-    private static IFormFile XlsxFile(string fileName, bool includeHiddenStates = false)
+    private static IFormFile XlsxFile(string fileName, bool includeHiddenStates = false, string firstModule = "")
     {
         var stream = new MemoryStream();
         using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
@@ -548,7 +600,7 @@ public sealed class ManualImportServiceTests
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
 </Relationships>
 """);
-            AddEntry(archive, "xl/worksheets/sheet1.xml", WorksheetXml("TC_XLSX_001", "Contact Support", "Line one\r\nLine two"));
+            AddEntry(archive, "xl/worksheets/sheet1.xml", WorksheetXml("TC_XLSX_001", string.IsNullOrWhiteSpace(firstModule) ? "Contact Support" : firstModule, "Line one\r\nLine two"));
             AddEntry(archive, "xl/worksheets/sheet2.xml", WorksheetXml("TC_XLSX_002", "Billing", "Billing description"));
             if (includeHiddenStates) AddEntry(archive, "xl/worksheets/sheet3.xml", WorksheetXml("TC_XLSX_003", "Scratch", "Scratch description"));
         }
@@ -571,7 +623,7 @@ public sealed class ManualImportServiceTests
     </row>
     <row r="2">
       <c r="A2" t="inlineStr"><is><t>{{testCaseId}}</t></is></c>
-      <c r="B2" t="inlineStr"><is><t>{{module}}</t></is></c>
+      <c r="B2" t="inlineStr"><is><t>{{System.Security.SecurityElement.Escape(module)}}</t></is></c>
       <c r="C2" t="inlineStr"><is><t>Tomcat_Reg</t></is></c>
       <c r="D2" t="inlineStr"><is><t>{{System.Security.SecurityElement.Escape(description)}}</t></is></c>
       <c r="E2"><v>1.0</v></c>
