@@ -15,6 +15,17 @@ public sealed class MasterTemplateListResponse
     public IReadOnlyList<MasterTemplateSummaryResponse> Items { get; set; } = [];
 }
 
+public sealed class MasterTemplateListRequest
+{
+    public int? ModuleId { get; set; }
+    public int? ClientId { get; set; }
+    public int? RoleId { get; set; }
+    public int? Round { get; set; }
+    public string Search { get; set; } = string.Empty;
+    public int Page { get; set; } = 1;
+    public int PageSize { get; set; } = 25;
+}
+
 public sealed class MasterTemplateSummaryResponse
 {
     public int MasterId { get; set; }

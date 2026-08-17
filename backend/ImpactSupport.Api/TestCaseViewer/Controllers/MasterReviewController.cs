@@ -22,9 +22,9 @@ public sealed class MasterReviewController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] int? moduleId, [FromQuery] int page = 1, [FromQuery] int pageSize = 25, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> List([FromQuery] MasterTemplateListRequest request, CancellationToken cancellationToken = default)
     {
-        return Ok(await _masterReviewService.GetListAsync(moduleId, page, pageSize, cancellationToken));
+        return Ok(await _masterReviewService.GetListAsync(request, cancellationToken));
     }
 
     [HttpGet("lookups")]

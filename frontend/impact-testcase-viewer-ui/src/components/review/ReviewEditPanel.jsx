@@ -13,10 +13,43 @@ import {
   deleteMasterReviewDetail,
 } from '../../services/testCaseViewerApi'
 
+function emptyReviewFilters() {
+  return { moduleId: '', clientId: '', roleId: '', round: '', search: '' }
+}
+
+function readReviewFiltersFromUrl() {
+  const params = new URLSearchParams(window.location.search)
+  return {
+    moduleId: params.get('moduleId') ?? '',
+    clientId: params.get('clientId') ?? '',
+    roleId: params.get('roleId') ?? '',
+    round: params.get('round') ?? '',
+    search: params.get('search') ?? '',
+  }
+}
+
+function cleanReviewFilters(filters) {
+  return Object.fromEntries(Object.entries(filters).filter(([, value]) => value !== undefined && value !== null && value !== ''))
+}
+
+function writeReviewFiltersToUrl(filters) {
+  const params = new URLSearchParams(window.location.search)
+  for (const key of ['moduleId', 'clientId', 'roleId', 'round', 'search']) {
+    const value = filters[key]
+    if (value === undefined || value === null || value === '') {
+      params.delete(key)
+    } else {
+      params.set(key, String(value))
+    }
+  }
+  const query = params.toString()
+  window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
+}
+
 export default function ReviewEditPanel({ user, loading, onSetLoading, onError }) {
   const [modules, setModules] = useState([])
   const [lookups, setLookups] = useState(null)
-  const [selectedModuleId, setSelectedModuleId] = useState(null)
+  const [filters, setFilters] = useState(readReviewFiltersFromUrl)
   const [list, setList] = useState({ items: [], page: 1, pageSize: 25, totalCount: 0 })
   const [detail, setDetail] = useState(null)
   const [form, setForm] = useState(null)
@@ -46,24 +79,39 @@ export default function ReviewEditPanel({ user, loading, onSetLoading, onError }
       const [moduleRows, lookupRows] = await Promise.all([getMasterReviewModules(user), getMasterReviewLookups(user)])
       setModules(moduleRows)
       setLookups(lookupRows)
-      const firstModule = moduleRows[0]?.moduleId ?? null
-      setSelectedModuleId(firstModule)
-      await loadList(firstModule, 1)
+      await loadList(filters, 1)
     })
   }
 
-  async function loadList(moduleId = selectedModuleId, page = 1) {
-    const rows = await getMasterReviewList(moduleId, page, 25, user)
+  async function loadList(nextFilters = filters, page = 1) {
+    const rows = await getMasterReviewList(cleanReviewFilters(nextFilters), page, 25, user)
     setList(rows)
     return rows
   }
 
   async function chooseModule(moduleId) {
+    await updateFilters({ moduleId })
+  }
+
+  async function updateFilters(patch) {
+    const nextFilters = { ...filters, ...patch }
+    setFilters(nextFilters)
+    writeReviewFiltersToUrl(nextFilters)
     await run(async () => {
-      setSelectedModuleId(moduleId)
       setDetail(null)
       setForm(null)
-      await loadList(moduleId, 1)
+      await loadList(nextFilters, 1)
+    })
+  }
+
+  async function clearFilters() {
+    const nextFilters = emptyReviewFilters()
+    setFilters(nextFilters)
+    writeReviewFiltersToUrl(nextFilters)
+    await run(async () => {
+      setDetail(null)
+      setForm(null)
+      await loadList(nextFilters, 1)
     })
   }
 
@@ -76,7 +124,7 @@ export default function ReviewEditPanel({ user, loading, onSetLoading, onError }
   }
 
   function createNew() {
-    const row = blankReviewDetail(selectedModuleId)
+    const row = blankReviewDetail(filters.moduleId)
     setDetail(row)
     setForm(toReviewForm(row))
     setMessage('')
@@ -92,8 +140,10 @@ export default function ReviewEditPanel({ user, loading, onSetLoading, onError }
         : await updateMasterReviewDetail(detail.masterTestId, payload, user)
       setDetail(saved)
       setForm(toReviewForm(saved))
-      setSelectedModuleId(saved.moduleId ?? selectedModuleId)
-      await loadList(saved.moduleId ?? selectedModuleId, 1)
+      const nextFilters = { ...filters, moduleId: saved.moduleId ?? filters.moduleId }
+      setFilters(nextFilters)
+      writeReviewFiltersToUrl(nextFilters)
+      await loadList(nextFilters, 1)
       setMessage(isCreate ? 'Test case created.' : 'Test case saved.')
     })
   }
@@ -105,7 +155,7 @@ export default function ReviewEditPanel({ user, loading, onSetLoading, onError }
       await deleteMasterReviewDetail(detail.masterTestId, user)
       setDetail(null)
       setForm(null)
-      await loadList(selectedModuleId, list.page)
+      await loadList(filters, list.page)
       setMessage('Test case soft-deleted.')
     })
   }
@@ -134,7 +184,7 @@ export default function ReviewEditPanel({ user, loading, onSetLoading, onError }
           </div>
           <div className="module-list">
             {modules.map(module => (
-              <button key={module.moduleId} type="button" className={selectedModuleId === module.moduleId ? 'active' : 'secondary'} onClick={() => chooseModule(module.moduleId)}>
+              <button key={module.moduleId} type="button" className={Number(filters.moduleId) === module.moduleId ? 'active' : 'secondary'} onClick={() => chooseModule(module.moduleId)}>
                 <span>{module.moduleName}</span>
                 <strong>{module.testCaseCount}</strong>
               </button>
@@ -142,6 +192,44 @@ export default function ReviewEditPanel({ user, loading, onSetLoading, onError }
           </div>
         </aside>
         <section className="upload-review">
+          <div className="review-filter-bar">
+            <label className="select-field">
+              <span>Module</span>
+              <select value={filters.moduleId} onChange={event => updateFilters({ moduleId: event.target.value })}>
+                <option value="">All modules</option>
+                {modules.map(module => <option key={module.moduleId} value={module.moduleId}>{module.moduleName}</option>)}
+              </select>
+            </label>
+            <label className="select-field">
+              <span>Name</span>
+              <input value={filters.search} onChange={event => updateFilters({ search: event.target.value })} placeholder="Test case ID or description" />
+            </label>
+            <label className="select-field">
+              <span>Client</span>
+              <select value={filters.clientId} onChange={event => updateFilters({ clientId: event.target.value })}>
+                <option value="">All clients</option>
+                {(lookups?.clients ?? []).map(client => <option key={client.id} value={client.id}>{client.value}</option>)}
+              </select>
+            </label>
+            <label className="select-field">
+              <span>Role</span>
+              <select value={filters.roleId} onChange={event => updateFilters({ roleId: event.target.value })}>
+                <option value="">All roles</option>
+                {(lookups?.preconditionRoles ?? []).filter(role => role.value !== 'PE').map(role => <option key={role.id} value={role.id}>{role.value}</option>)}
+              </select>
+            </label>
+            <label className="select-field">
+              <span>Round</span>
+              <select value={filters.round} onChange={event => updateFilters({ round: event.target.value })}>
+                <option value="">All rounds</option>
+                <option value="1">1st</option>
+                <option value="2">2nd</option>
+                <option value="3">3rd</option>
+                <option value="4">4th</option>
+              </select>
+            </label>
+            <button type="button" className="secondary" onClick={clearFilters} disabled={loading}>Clear filters</button>
+          </div>
           <div className="section-heading">
             <h2>Test Cases</h2>
             <span>{list.totalCount ?? 0}</span>
@@ -164,9 +252,9 @@ export default function ReviewEditPanel({ user, loading, onSetLoading, onError }
             </table>
           </div>
           <div className="topbar-actions">
-            <button type="button" className="secondary" disabled={loading || list.page <= 1} onClick={() => run(() => loadList(selectedModuleId, list.page - 1))}>Previous</button>
+            <button type="button" className="secondary" disabled={loading || list.page <= 1} onClick={() => run(() => loadList(filters, list.page - 1))}>Previous</button>
             <span>{list.page} / {totalPages}</span>
-            <button type="button" className="secondary" disabled={loading || list.page >= totalPages} onClick={() => run(() => loadList(selectedModuleId, list.page + 1))}>Next</button>
+            <button type="button" className="secondary" disabled={loading || list.page >= totalPages} onClick={() => run(() => loadList(filters, list.page + 1))}>Next</button>
           </div>
         </section>
         <section className="upload-review detail-editor">

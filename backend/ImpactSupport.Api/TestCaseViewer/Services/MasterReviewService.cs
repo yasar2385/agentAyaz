@@ -29,12 +29,27 @@ public sealed class MasterReviewService : IMasterReviewService
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<MasterTemplateListResponse> GetListAsync(int? moduleId, int page, int pageSize, CancellationToken cancellationToken = default)
+    public async Task<MasterTemplateListResponse> GetListAsync(MasterTemplateListRequest request, CancellationToken cancellationToken = default)
     {
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 100);
+        var page = Math.Max(1, request.Page);
+        var pageSize = Math.Clamp(request.PageSize, 1, 100);
         var query = _dbContext.MasterTemplates.AsNoTracking().Where(master => master.MasterIsActive);
-        if (moduleId.HasValue) query = query.Where(master => master.MasterModules == moduleId);
+        if (request.ModuleId.HasValue) query = query.Where(master => master.MasterModules == request.ModuleId);
+        if (request.ClientId.HasValue) query = query.Where(master => master.Clients.Any(client => client.ClientId == request.ClientId));
+        if (request.RoleId.HasValue) query = query.Where(master => master.MasterPreconditionRole == request.RoleId);
+        if (request.Round is >= 1 and <= 4)
+        {
+            query = query.Where(master => master.Remarks.Any(remark => remark.RoundNumber == request.Round && (!string.IsNullOrWhiteSpace(remark.QaRemark) || !string.IsNullOrWhiteSpace(remark.DevRemark))));
+        }
+
+        var search = request.Search.Trim();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var lowered = search.ToLower();
+            query = query.Where(master =>
+                master.MasterTestId.ToLower().Contains(lowered)
+                || (master.Details != null && master.Details.MasterDescription.ToLower().Contains(lowered)));
+        }
 
         var total = await query.CountAsync(cancellationToken);
         var modules = await _dbContext.MasterModules.AsNoTracking().ToDictionaryAsync(item => item.Id, item => item.Name, cancellationToken);

@@ -283,6 +283,14 @@ button:disabled {
   grid-template-columns: 240px minmax(320px, 0.9fr) minmax(420px, 1.2fr);
 }
 
+.review-filter-bar {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(120px, 1fr)) auto;
+  margin-bottom: 14px;
+}
+
 .module-list {
   display: grid;
   gap: 8px;
@@ -700,7 +708,8 @@ th {
   .filters,
   .search-row,
   .mode-tabs,
-  .view-tabs {
+  .view-tabs,
+  .review-filter-bar {
     grid-template-columns: 1fr;
   }
 

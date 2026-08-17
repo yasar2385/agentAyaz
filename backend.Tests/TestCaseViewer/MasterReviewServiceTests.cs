@@ -148,7 +148,7 @@ public sealed class MasterReviewServiceTests
 
         var service = new MasterReviewService(db);
         var deleted = await service.DeleteAsync("TC_REVIEW_DELETE", QaUser());
-        var list = await service.GetListAsync(52, 1, 25);
+        var list = await service.GetListAsync(new MasterTemplateListRequest { ModuleId = 52, Page = 1, PageSize = 25 });
         var master = await db.MasterTemplates.IgnoreQueryFilters().SingleAsync(item => item.MasterTestId == "TC_REVIEW_DELETE");
 
         Assert.True(deleted);
@@ -158,6 +158,76 @@ public sealed class MasterReviewServiceTests
         Assert.Empty(list.Items);
         Assert.Equal(1, await db.TestingDataResults.CountAsync(item => item.MasterTestId == "TC_REVIEW_DELETE"));
         Assert.True(await db.MasterTemplateEditHistory.AnyAsync(item => item.MasterId == master.MasterId && item.FieldName == "Delete"));
+    }
+
+    [Fact]
+    public async Task GetListAsync_AppliesCombinedFiltersAndExcludesInactiveRows()
+    {
+        await using var db = CreateDbContext();
+        db.MasterModules.Add(new MasterModule { Id = 60, Name = "Landing Page" });
+        db.MasterModules.Add(new MasterModule { Id = 61, Name = "Contact Support" });
+        db.MasterTemplates.Add(new MasterTemplate
+        {
+            MasterTestId = "TC_FILTER_001",
+            MasterModules = 60,
+            MasterPreconditionRole = 4,
+            Details = new MasterTestDetails { MasterDescription = "Searchable landing description" },
+            Clients = [new MasterTemplateClient { ClientId = 5 }, new MasterTemplateClient { ClientId = 1 }],
+            Remarks = [new MasterTemplateRemark { RoundNumber = 2, QaRemark = "Round two note", DevRemark = string.Empty }]
+        });
+        db.MasterTemplates.Add(new MasterTemplate
+        {
+            MasterTestId = "TC_FILTER_002",
+            MasterModules = 60,
+            MasterPreconditionRole = 1,
+            Details = new MasterTestDetails { MasterDescription = "Searchable landing description" },
+            Clients = [new MasterTemplateClient { ClientId = 5 }],
+            Remarks = [new MasterTemplateRemark { RoundNumber = 1, QaRemark = "Round one note", DevRemark = string.Empty }]
+        });
+        db.MasterTemplates.Add(new MasterTemplate
+        {
+            MasterTestId = "TC_FILTER_DELETED",
+            MasterModules = 60,
+            MasterPreconditionRole = 4,
+            MasterIsActive = false,
+            Details = new MasterTestDetails { MasterDescription = "Searchable landing description" },
+            Clients = [new MasterTemplateClient { ClientId = 5 }],
+            Remarks = [new MasterTemplateRemark { RoundNumber = 2, QaRemark = "Round two note", DevRemark = string.Empty }]
+        });
+        await db.SaveChangesAsync();
+
+        var list = await new MasterReviewService(db).GetListAsync(new MasterTemplateListRequest
+        {
+            ModuleId = 60,
+            ClientId = 5,
+            RoleId = 4,
+            Round = 2,
+            Search = "landing",
+            Page = 1,
+            PageSize = 25
+        });
+
+        var item = Assert.Single(list.Items);
+        Assert.Equal("TC_FILTER_001", item.MasterTestId);
+        Assert.Equal(1, list.TotalCount);
+    }
+
+    [Fact]
+    public async Task GetListAsync_SearchMatchesTestIdAndDescription()
+    {
+        await using var db = CreateDbContext();
+        db.MasterTemplates.Add(new MasterTemplate { MasterTestId = "TC_SEARCH_ID", Details = new MasterTestDetails { MasterDescription = "Plain text" } });
+        db.MasterTemplates.Add(new MasterTemplate { MasterTestId = "TC_OTHER", Details = new MasterTestDetails { MasterDescription = "Special description text" } });
+        await db.SaveChangesAsync();
+        var service = new MasterReviewService(db);
+
+        var byId = await service.GetListAsync(new MasterTemplateListRequest { Search = "search_id" });
+        var byDescription = await service.GetListAsync(new MasterTemplateListRequest { Search = "special description" });
+
+        Assert.Contains(byId.Items, item => item.MasterTestId == "TC_SEARCH_ID");
+        Assert.DoesNotContain(byId.Items, item => item.MasterTestId == "TC_OTHER");
+        Assert.Contains(byDescription.Items, item => item.MasterTestId == "TC_OTHER");
+        Assert.DoesNotContain(byDescription.Items, item => item.MasterTestId == "TC_SEARCH_ID");
     }
 
     private static SupportDbContext CreateDbContext()

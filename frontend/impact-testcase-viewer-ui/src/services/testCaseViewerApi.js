@@ -161,9 +161,11 @@ export async function getMasterReviewModules(user = null) {
   return getJson('/api/testcaseviewer/master/modules', 'Failed to fetch master modules', user);
 }
 
-export async function getMasterReviewList(moduleId, page = 1, pageSize = 25, user = null) {
+export async function getMasterReviewList(filters = {}, page = 1, pageSize = 25, user = null) {
   const query = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
-  if (moduleId) query.set('moduleId', String(moduleId));
+  for (const [key, value] of Object.entries(filters ?? {})) {
+    if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+  }
   return getJson(`/api/testcaseviewer/master?${query.toString()}`, 'Failed to fetch master test cases', user);
 }
 
