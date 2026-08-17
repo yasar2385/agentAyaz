@@ -210,6 +210,73 @@ export default function ManualUploadPanel({ user, loading, onSetLoading, onError
         </section>
       )}
 
+      {(masterBatch?.moduleClientPreview?.length ?? 0) > 0 && (
+        <section className="upload-review">
+          <div className="section-heading">
+            <h2>Module Client Preview</h2>
+            <span>Informational</span>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Source row</th>
+                  <th>Raw module</th>
+                  <th>Module</th>
+                  <th>Clients</th>
+                  <th>Sub-client</th>
+                  <th>Type</th>
+                  <th>DTD</th>
+                </tr>
+              </thead>
+              <tbody>
+                {masterBatch.moduleClientPreview.map(item => (
+                  <tr key={`${item.sheetName}-${item.sourceRowNumber}-${item.rawModule}`}>
+                    <td>{item.sourceRowNumber}</td>
+                    <td>{item.rawModule}</td>
+                    <td>{item.module}</td>
+                    <td>{(item.clients ?? []).join(', ')}</td>
+                    <td>{item.subClient}</td>
+                    <td>{item.type}</td>
+                    <td>{item.dtd}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {(masterBatch?.preconditionWildcardWarnings?.length ?? 0) > 0 && (
+        <section className="upload-review">
+          <div className="section-heading">
+            <h2>Preconditions Wildcard Warnings</h2>
+            <span>Non-blocking</span>
+          </div>
+          <div className="notice compact">These rows used unknown Preconditions text and will commit as all roles/all clients.</div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Source row</th>
+                  <th>Sheet/Page</th>
+                  <th>Raw Preconditions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {masterBatch.preconditionWildcardWarnings.map(item => (
+                  <tr key={`${item.sheetName}-${item.sourceRowNumber}-${item.rawValue}`}>
+                    <td>{item.sourceRowNumber}</td>
+                    <td>{item.sheetName}</td>
+                    <td>{item.rawValue}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       {masterInspect && masterInspect.sourceType === 'XLSX workbook' && (
         <section className="upload-review">
           <div className="section-heading">

@@ -113,7 +113,7 @@ public sealed class ManualImportServiceTests
     }
 
     [Fact]
-    public async Task UploadMasterAsync_ReportsUnknownPreconditionsInsteadOfWildcard()
+    public async Task UploadMasterAsync_UnknownPreconditionsBecomeWildcardWarning()
     {
         await using var db = CreateDbContext();
         var service = new ManualImportService(db);
@@ -122,10 +122,75 @@ public sealed class ManualImportServiceTests
             ["Sheet Name", "Test Case ID", "Module/Sub Module", "Preconditions"],
             ["Contact Support", "TC_CS_001", "Contact Support", "Unexpected access group"])), null);
 
-        Assert.Equal(1, batch.RowsError);
+        Assert.Equal(0, batch.RowsError);
         Assert.Empty(await db.QaImportBatchErrors.ToListAsync());
-        var error = Assert.Single(batch.Errors);
-        Assert.Contains("Unrecognized Preconditions", error.ErrorMessage);
+        var warning = Assert.Single(batch.PreconditionWildcardWarnings);
+        Assert.Equal("Unexpected access group", warning.RawValue);
+        await service.CommitAsync(batch.BatchId);
+        var master = await db.MasterTemplates.SingleAsync(item => item.MasterTestId == "TC_CS_001");
+        Assert.Null(master.MasterPreconditionRole);
+    }
+
+    [Fact]
+    public async Task CommitAsync_ResolvesPeAliasToEditor()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+        var batch = await service.UploadMasterAsync(File("pe.tsv", Tsv(
+            ["Test Case ID", "Module/Sub Module", "Preconditions"],
+            ["TC_PE_001", "Contact Support", "PE role"],
+            ["TC_PE_002", "Contact Support", "Shared PE Role"])), null);
+
+        Assert.Equal(0, batch.RowsError);
+        await service.CommitAsync(batch.BatchId);
+
+        var rows = await db.MasterTemplates.OrderBy(item => item.MasterTestId).ToListAsync();
+        Assert.All(rows, item => Assert.Equal(4, item.MasterPreconditionRole));
+        Assert.True(rows.Single(item => item.MasterTestId == "TC_PE_002").MasterIsSharedRole);
+    }
+
+    [Fact]
+    public async Task CommitAsync_ParsesModuleClientSubClientAndDtdMatrix()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+        var batch = await service.UploadMasterAsync(File("modules.tsv", Tsv(
+            ["Test Case ID", "Module/Sub Module"],
+            ["TC_MOD_001", "Landing Page (OUP)"],
+            ["TC_MOD_002", "Landing Page LWW"],
+            ["TC_MOD_003", "Landing Page (LWW ,Thomson)"],
+            ["TC_MOD_004", "Landing Page (OSO & OxfordMed books)"])), null);
+
+        Assert.Equal(0, batch.RowsError);
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page (LWW ,Thomson)" && item.SubClient == "Thomson" && item.Dtd == "JATS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page (OSO & OxfordMed books)" && item.Clients.Contains("OSO") && item.Clients.Contains("OXMEDO") && item.Type == "Book" && item.Dtd == "BITS");
+
+        await service.CommitAsync(batch.BatchId);
+
+        var modules = await db.MasterModules.Where(item => item.Name == "Landing Page").ToListAsync();
+        Assert.Single(modules);
+        var thomson = await db.MasterTemplates.Include(item => item.Clients).SingleAsync(item => item.MasterTestId == "TC_MOD_003");
+        Assert.Equal(5, thomson.MasterClient);
+        Assert.Equal(1, thomson.MasterSubClient);
+        Assert.Equal(1, thomson.MasterDtdType);
+        var books = await db.MasterTemplates.Include(item => item.Clients).SingleAsync(item => item.MasterTestId == "TC_MOD_004");
+        Assert.Equal(2, books.MasterType);
+        Assert.Equal(2, books.MasterDtdType);
+        Assert.Equal(2, books.Clients.Count);
+    }
+
+    [Fact]
+    public async Task UploadMasterAsync_UnknownDtdMatrixCombinationBlocksDryRun()
+    {
+        await using var db = CreateDbContext();
+        var service = new ManualImportService(db);
+
+        var batch = await service.UploadMasterAsync(File("bad-matrix.tsv", Tsv(
+            ["Test Case ID", "Module/Sub Module"],
+            ["TC_BAD_DTD_001", "Landing Page (T & F)"])), null);
+
+        Assert.Equal(1, batch.RowsError);
+        Assert.Contains(batch.Errors, error => error.ErrorMessage.Contains("No DTD mapping", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -144,6 +209,7 @@ public sealed class ManualImportServiceTests
         await service.CommitAsync(batch.BatchId);
         var contact = await db.MasterTemplates.Include(item => item.Details).SingleAsync(item => item.MasterTestId == "TC_XLSX_001");
         Assert.Equal("Contact Support", contact.MasterSourceSheet);
+        Assert.Equal("1", contact.MasterTestNo);
         Assert.Equal("Line one\nLine two", contact.Details?.MasterDescription);
     }
 
@@ -443,12 +509,14 @@ public sealed class ManualImportServiceTests
       <c r="B1" t="inlineStr"><is><t>Module/Sub Module</t></is></c>
       <c r="C1" t="inlineStr"><is><t>Type of testing</t></is></c>
       <c r="D1" t="inlineStr"><is><t>Test Case Description</t></is></c>
+      <c r="E1" t="inlineStr"><is><t>Test Case No.</t></is></c>
     </row>
     <row r="2">
       <c r="A2" t="inlineStr"><is><t>{{testCaseId}}</t></is></c>
       <c r="B2" t="inlineStr"><is><t>{{module}}</t></is></c>
       <c r="C2" t="inlineStr"><is><t>Tomcat_Reg</t></is></c>
       <c r="D2" t="inlineStr"><is><t>{{System.Security.SecurityElement.Escape(description)}}</t></is></c>
+      <c r="E2"><v>1.0</v></c>
     </row>
   </sheetData>
 </worksheet>

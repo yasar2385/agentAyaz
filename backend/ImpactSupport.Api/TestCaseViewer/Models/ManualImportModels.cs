@@ -19,6 +19,8 @@ public sealed class ImportBatchResponse
     public IReadOnlyList<ImportBatchErrorResponse> Errors { get; set; } = [];
     public IReadOnlyList<DuplicateIdResolutionResponse> DuplicateIdsResolved { get; set; } = [];
     public IReadOnlyList<ManualEditConflictResponse> ManualEditConflicts { get; set; } = [];
+    public IReadOnlyList<ModuleClientPreviewResponse> ModuleClientPreview { get; set; } = [];
+    public IReadOnlyList<PreconditionWildcardWarningResponse> PreconditionWildcardWarnings { get; set; } = [];
 }
 
 public sealed class ImportBatchSheetResponse
@@ -56,6 +58,25 @@ public sealed class ManualEditConflictResponse
     public string LastEditedBy { get; set; } = string.Empty;
     public DateTimeOffset? LastEditedAt { get; set; }
     public string SelectedAction { get; set; } = string.Empty;
+}
+
+public sealed class ModuleClientPreviewResponse
+{
+    public string RawModule { get; set; } = string.Empty;
+    public string Module { get; set; } = string.Empty;
+    public IReadOnlyList<string> Clients { get; set; } = [];
+    public string SubClient { get; set; } = string.Empty;
+    public string Type { get; set; } = string.Empty;
+    public string Dtd { get; set; } = string.Empty;
+    public string SheetName { get; set; } = string.Empty;
+    public int SourceRowNumber { get; set; }
+}
+
+public sealed class PreconditionWildcardWarningResponse
+{
+    public string SheetName { get; set; } = string.Empty;
+    public int SourceRowNumber { get; set; }
+    public string RawValue { get; set; } = string.Empty;
 }
 
 public sealed class ImportInspectResponse

@@ -10,6 +10,14 @@ public sealed class QaRow
     public string? OriginalRawTestCaseId { get; set; }
     public string Preconditions { get; set; } = string.Empty;
     public string Module { get; set; } = string.Empty;
+    public string RawModule { get; set; } = string.Empty;
+    public string ModuleClientPreviewModule { get; set; } = string.Empty;
+    public List<string> ModuleClientPreviewClients { get; set; } = [];
+    public string ModuleClientPreviewSubClient { get; set; } = string.Empty;
+    public string ModuleClientPreviewType { get; set; } = string.Empty;
+    public string ModuleClientPreviewDtd { get; set; } = string.Empty;
+    public bool PreconditionWildcardWarning { get; set; }
+    public string PreconditionWildcardRawValue { get; set; } = string.Empty;
     public string PreparedBy { get; set; } = string.Empty;
     public string PreparedDate { get; set; } = string.Empty;
     public string TestingType { get; set; } = string.Empty;

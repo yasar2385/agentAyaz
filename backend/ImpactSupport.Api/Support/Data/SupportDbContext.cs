@@ -31,6 +31,7 @@ public sealed class SupportDbContext : DbContext
     public DbSet<MasterTestDetails> MasterTestDetails => Set<MasterTestDetails>();
     public DbSet<MasterModule> MasterModules => Set<MasterModule>();
     public DbSet<MasterPreconditionRole> MasterPreconditionRoles => Set<MasterPreconditionRole>();
+    public DbSet<MasterPreconditionRoleAlias> MasterPreconditionRoleAliases => Set<MasterPreconditionRoleAlias>();
     public DbSet<MasterTestingType> MasterTestingTypes => Set<MasterTestingType>();
     public DbSet<MasterTestingTypeAlias> MasterTestingTypeAliases => Set<MasterTestingTypeAlias>();
     public DbSet<MasterIssueType> MasterIssueTypes => Set<MasterIssueType>();
@@ -38,11 +39,13 @@ public sealed class SupportDbContext : DbContext
     public DbSet<MasterDevStatus> MasterDevStatuses => Set<MasterDevStatus>();
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<ClientAlias> ClientAliases => Set<ClientAlias>();
+    public DbSet<ClientSubBrand> ClientSubBrands => Set<ClientSubBrand>();
     public DbSet<RefStyle> RefStyles => Set<RefStyle>();
     public DbSet<RoleWorkflow> RoleWorkflows => Set<RoleWorkflow>();
     public DbSet<ContentType> Types => Set<ContentType>();
     public DbSet<DtdType> DtdTypes => Set<DtdType>();
     public DbSet<TestingUrl> TestingUrls => Set<TestingUrl>();
+    public DbSet<TypeClientDtdMap> TypeClientDtdMaps => Set<TypeClientDtdMap>();
     public DbSet<MasterTemplateTestingType> MasterTemplateTestingTypes => Set<MasterTemplateTestingType>();
     public DbSet<MasterTemplateClient> MasterTemplateClients => Set<MasterTemplateClient>();
     public DbSet<MasterTemplateRemark> MasterTemplateRemarks => Set<MasterTemplateRemark>();
@@ -322,6 +325,7 @@ public sealed class SupportDbContext : DbContext
             entity.HasIndex(x => x.MasterTestId).IsUnique();
             entity.Property(x => x.MasterTestId).IsRequired();
             entity.Property(x => x.MasterOriginalRawId);
+            entity.Property(x => x.MasterSubClient);
             entity.Property(x => x.MasterIsActive).HasDefaultValue(true);
             entity.Property(x => x.MasterDeletedAt);
             entity.Property(x => x.MasterDeletedBy);
@@ -393,6 +397,14 @@ public sealed class SupportDbContext : DbContext
         modelBuilder.Entity<ContentType>().HasData(new ContentType { Id = 1, Value = "Journal" }, new ContentType { Id = 2, Value = "Book" });
         modelBuilder.Entity<DtdType>().HasData(new DtdType { Id = 1, Value = "JATS" }, new DtdType { Id = 2, Value = "BITS" }, new DtdType { Id = 3, Value = "DOCBOOK" });
         modelBuilder.Entity<MasterPreconditionRole>().HasData(new MasterPreconditionRole { Id = 1, Value = "Author" }, new MasterPreconditionRole { Id = 2, Value = "PE" }, new MasterPreconditionRole { Id = 3, Value = "Collator" }, new MasterPreconditionRole { Id = 4, Value = "Editor" });
+        modelBuilder.Entity<MasterPreconditionRoleAlias>(entity =>
+        {
+            entity.ToTable("MasterPreconditionRoleAliases");
+            entity.HasKey(x => x.Alias);
+            entity.Property(x => x.Alias).IsRequired();
+            entity.HasOne<MasterPreconditionRole>().WithMany().HasForeignKey(x => x.RoleId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasData(new MasterPreconditionRoleAlias { Alias = "PE", RoleId = 4 });
+        });
         modelBuilder.Entity<MasterIssueType>().HasData(new MasterIssueType { Id = 1, Value = "Bug" }, new MasterIssueType { Id = 2, Value = "Change Request" }, new MasterIssueType { Id = 3, Value = "Enhancement" });
         modelBuilder.Entity<MasterQaStatus>().HasData(new MasterQaStatus { Id = 1, Value = "Pass" }, new MasterQaStatus { Id = 2, Value = "Fail" }, new MasterQaStatus { Id = 3, Value = "Fixed" }, new MasterQaStatus { Id = 4, Value = "Rejected" }, new MasterQaStatus { Id = 5, Value = "WIP" });
         modelBuilder.Entity<MasterDevStatus>().HasData(new MasterDevStatus { Id = 1, Value = "Fixed" }, new MasterDevStatus { Id = 2, Value = "Rejected" }, new MasterDevStatus { Id = 3, Value = "WIP" }, new MasterDevStatus { Id = 4, Value = "Open" });
@@ -429,7 +441,36 @@ public sealed class SupportDbContext : DbContext
         modelBuilder.Entity<Client>().HasData(
             new Client { Id = 1, Code = "OSO", Name = "OSO" },
             new Client { Id = 2, Code = "OXMEDO", Name = "OxfordMed" },
-            new Client { Id = 3, Code = "TNF", Name = "T & F" });
+            new Client { Id = 3, Code = "TNF", Name = "T & F" },
+            new Client { Id = 4, Code = "OUP", Name = "OUP" },
+            new Client { Id = 5, Code = "LWW", Name = "LWW" },
+            new Client { Id = 6, Code = "OHO", Name = "OHO" });
+        modelBuilder.Entity<ClientSubBrand>(entity =>
+        {
+            entity.ToTable("ClientSubBrands");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.ClientId, x.Value }).IsUnique();
+            entity.Property(x => x.Value).IsRequired();
+            entity.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasData(new ClientSubBrand { Id = 1, ClientId = 5, Value = "Thomson" });
+        });
+        modelBuilder.Entity<TypeClientDtdMap>(entity =>
+        {
+            entity.ToTable("TypeClientDtdMap");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.TypeId, x.ClientId, x.SubClientId }).IsUnique();
+            entity.HasOne<ContentType>().WithMany().HasForeignKey(x => x.TypeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<Client>().WithMany().HasForeignKey(x => x.ClientId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<ClientSubBrand>().WithMany().HasForeignKey(x => x.SubClientId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<DtdType>().WithMany().HasForeignKey(x => x.DtdTypeId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasData(
+                new TypeClientDtdMap { Id = 1, TypeId = 1, ClientId = 4, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 2, TypeId = 1, ClientId = 5, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 3, TypeId = 1, ClientId = 5, SubClientId = 1, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 4, TypeId = 2, ClientId = 1, DtdTypeId = 2 },
+                new TypeClientDtdMap { Id = 5, TypeId = 2, ClientId = 6, DtdTypeId = 2 },
+                new TypeClientDtdMap { Id = 6, TypeId = 2, ClientId = 2, DtdTypeId = 2 });
+        });
         modelBuilder.Entity<MasterTemplateRemark>(entity =>
         {
             entity.ToTable("MasterTemplateRemarks");

@@ -11,6 +11,7 @@ public sealed class MasterTemplate
     public int? MasterModules { get; set; }
     public int? MasterPreconditionRole { get; set; }
     public int? MasterClient { get; set; }
+    public int? MasterSubClient { get; set; }
     public int? MasterType { get; set; }
     public int? MasterDtdType { get; set; }
     public int? MasterRoleWorkflow { get; set; }
@@ -47,6 +48,7 @@ public sealed class MasterTestDetails
 
 public sealed class MasterModule { public int Id { get; set; } public string Name { get; set; } = string.Empty; }
 public sealed class MasterPreconditionRole { public int Id { get; set; } public string Value { get; set; } = string.Empty; }
+public sealed class MasterPreconditionRoleAlias { public string Alias { get; set; } = string.Empty; public int RoleId { get; set; } }
 public sealed class MasterTestingType { public int Id { get; set; } public string Value { get; set; } = string.Empty; }
 public sealed class MasterTestingTypeAlias { public string Alias { get; set; } = string.Empty; public int TestingTypeId { get; set; } }
 public sealed class MasterIssueType { public int Id { get; set; } public string Value { get; set; } = string.Empty; }
@@ -54,11 +56,13 @@ public sealed class MasterQaStatus { public int Id { get; set; } public string V
 public sealed class MasterDevStatus { public int Id { get; set; } public string Value { get; set; } = string.Empty; }
 public sealed class Client { public int Id { get; set; } public string Code { get; set; } = string.Empty; public string Name { get; set; } = string.Empty; }
 public sealed class ClientAlias { public string Alias { get; set; } = string.Empty; public int ClientId { get; set; } }
+public sealed class ClientSubBrand { public int Id { get; set; } public int ClientId { get; set; } public string Value { get; set; } = string.Empty; }
 public sealed class RefStyle { public int Id { get; set; } public string Value { get; set; } = string.Empty; }
 public sealed class RoleWorkflow { public int Id { get; set; } public string Value { get; set; } = string.Empty; public bool IsDefault { get; set; } }
 public sealed class ContentType { public int Id { get; set; } public string Value { get; set; } = string.Empty; }
 public sealed class DtdType { public int Id { get; set; } public string Value { get; set; } = string.Empty; }
 public sealed class TestingUrl { public int Id { get; set; } public string Value { get; set; } = string.Empty; public string UrlType { get; set; } = "single"; }
+public sealed class TypeClientDtdMap { public int Id { get; set; } public int TypeId { get; set; } public int ClientId { get; set; } public int? SubClientId { get; set; } public int DtdTypeId { get; set; } }
 
 public sealed class MasterTemplateTestingType
 {

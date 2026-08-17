@@ -288,7 +288,7 @@ public sealed class ManualImportService : IManualImportService
                     if (record.All(string.IsNullOrWhiteSpace)) continue;
 
                     var row = ToQaRow(file.FileName, sourceSheet.SourceName, record, map, uploadKind);
-                    var rowErrors = ValidateRow(row, record);
+                    var rowErrors = await ValidateRowAsync(row, record, uploadKind, cancellationToken);
                     if (rowErrors.Count > 0)
                     {
                         errors.AddRange(rowErrors.Select(message => new QaImportBatchError
@@ -465,7 +465,7 @@ public sealed class ManualImportService : IManualImportService
             SourceFileId = uploadKind == ResultKind ? $"manual-result-{Path.GetFileNameWithoutExtension(fileName)}" : MasterFileId,
             SourceFileName = fileName,
             SheetName = sheetName,
-            TestCaseNo = First(record, map, "Test Case No.", "TestCaseNo"),
+            TestCaseNo = NormalizeTestCaseNo(First(record, map, "Test Case No.", "No.", "TestCaseNo")),
             TestCaseId = First(record, map, "Test Case ID", "TestCaseId"),
             Preconditions = First(record, map, "Preconditions"),
             Module = First(record, map, "Module/Sub Module", "Module/ Sub Module", "Module"),
@@ -486,17 +486,33 @@ public sealed class ManualImportService : IManualImportService
         };
     }
 
-    private static List<string> ValidateRow(QaRow row, IReadOnlyList<string> record)
+    private async Task<List<string>> ValidateRowAsync(QaRow row, IReadOnlyList<string> record, string uploadKind, CancellationToken cancellationToken)
     {
         var errors = new List<string>();
         if (string.IsNullOrWhiteSpace(row.TestCaseId)) errors.Add("Test Case ID is required.");
         if (string.IsNullOrWhiteSpace(row.SheetName)) errors.Add("Sheet Name is required.");
         if (string.IsNullOrWhiteSpace(row.Module)) errors.Add("Module/Sub Module is required.");
         if (!string.IsNullOrWhiteSpace(row.TestCaseId) && row.TestCaseId.Length < 3) errors.Add("Test Case ID is malformed.");
-        if (!PreconditionIsRecognized(row.Preconditions)) errors.Add($"Unrecognized Preconditions value: '{row.Preconditions}'");
+        if (!PreconditionIsRecognized(row.Preconditions))
+        {
+            row.PreconditionWildcardWarning = true;
+            row.PreconditionWildcardRawValue = row.Preconditions;
+        }
         foreach (var testingType in SplitTestingTypes(row.TestingType))
         {
             if (!KnownTestingTypes.Contains(NormalizeTestingType(testingType), StringComparer.OrdinalIgnoreCase)) errors.Add($"Unknown Type of testing value: '{testingType}'");
+        }
+        if (uploadKind == MasterKind && !string.IsNullOrWhiteSpace(row.Module))
+        {
+            var module = await TryResolveModuleAsync(row.Module, cancellationToken);
+            if (module.Errors.Count > 0) errors.AddRange(module.Errors);
+            row.RawModule = module.RawModule;
+            row.Module = module.ModuleName;
+            row.ModuleClientPreviewModule = module.ModuleName;
+            row.ModuleClientPreviewClients = module.ClientCodes.ToList();
+            row.ModuleClientPreviewSubClient = module.SubClientName;
+            row.ModuleClientPreviewType = module.TypeName;
+            row.ModuleClientPreviewDtd = module.DtdName;
         }
         return errors;
     }
@@ -574,8 +590,15 @@ public sealed class ManualImportService : IManualImportService
     {
         foreach (var row in rows)
         {
-            var module = await GetOrCreateModuleAsync(row.Module, cancellationToken);
+            var moduleResolution = await ResolveModuleAsync(string.IsNullOrWhiteSpace(row.RawModule) ? row.Module : row.RawModule, cancellationToken);
+            var module = await GetOrCreateModuleAsync(moduleResolution.ModuleName, cancellationToken);
             var precondition = await ResolvePreconditionsAsync(row.Preconditions, cancellationToken);
+            var clientIds = moduleResolution.ClientIds.Count > 0 ? moduleResolution.ClientIds : precondition.ClientIds;
+            var clientCodes = moduleResolution.ClientCodes.Count > 0 ? moduleResolution.ClientCodes : precondition.ClientCodes;
+            var masterTypeId = moduleResolution.TypeId ?? precondition.MasterTypeId ?? await ResolveClosedLookupAsync(_dbContext.Types, "Journal", cancellationToken);
+            var dtdTypeId = clientIds.Count > 0
+                ? await ResolveDtdTypeIdAsync(masterTypeId, clientIds[0], moduleResolution.SubClientId, cancellationToken)
+                : null;
             var master = await _dbContext.MasterTemplates
                 .Include(item => item.Details)
                 .Include(item => item.TestingTypes)
@@ -594,8 +617,10 @@ public sealed class ManualImportService : IManualImportService
             master.MasterSourceRow = sourceRowStart;
             master.MasterModules = module.Id;
             master.MasterPreconditionRole = precondition.RoleId;
-            master.MasterClient = precondition.ClientIds.Count > 0 ? precondition.ClientIds[0] : null;
-            master.MasterType = precondition.MasterTypeId;
+            master.MasterClient = clientIds.Count > 0 ? clientIds[0] : null;
+            master.MasterSubClient = moduleResolution.SubClientId;
+            master.MasterType = masterTypeId;
+            master.MasterDtdType = dtdTypeId;
             master.MasterPreparedBy = row.PreparedBy;
             master.MasterPreparedDate = row.PreparedDate;
             master.MasterTestData = NormalizeText(row.TestData);
@@ -605,7 +630,7 @@ public sealed class ManualImportService : IManualImportService
             master.MasterQaStatus = await ResolveClosedLookupAsync(_dbContext.MasterQaStatuses, row.QaStatus, cancellationToken);
             master.MasterDevStatus = await ResolveClosedLookupAsync(_dbContext.MasterDevStatuses, row.DevStatus, cancellationToken);
             master.MasterIsSharedRole = precondition.IsSharedRole;
-            master.MasterIsCollaborative = precondition.IsBook && precondition.ClientCodes.Any(code => code is "OSO" or "OXMEDO");
+            master.MasterIsCollaborative = masterTypeId == 2 && clientCodes.Any(code => code is "OSO" or "OXMEDO");
             master.MasterUpdatedAt = DateTimeOffset.UtcNow;
             master.Details ??= new MasterTestDetails { MasterTemplate = master };
             master.Details.MasterDescription = NormalizeText(row.Description);
@@ -626,7 +651,7 @@ public sealed class ManualImportService : IManualImportService
             }
 
             master.Clients.Clear();
-            foreach (var clientId in precondition.ClientIds.Distinct())
+            foreach (var clientId in clientIds.Distinct())
             {
                 master.Clients.Add(new MasterTemplateClient { ClientId = clientId });
             }
@@ -683,6 +708,8 @@ public sealed class ManualImportService : IManualImportService
             ExistingSheets = batch.ExistingSheets,
             Errors = (transientErrors ?? batch.Errors).Select(error => new ImportBatchErrorResponse { Id = error.Id, RowNumber = error.RowNumber, RawValue = error.RawValue, ErrorMessage = error.ErrorMessage }).ToList(),
             DuplicateIdsResolved = DuplicateIdResponses(batch),
+            ModuleClientPreview = ModuleClientPreviewResponses(batch),
+            PreconditionWildcardWarnings = PreconditionWildcardWarningResponses(batch),
             ManualEditConflicts = batch.Rows
                 .Where(row => row.ManualEditConflict)
                 .OrderBy(row => row.ImportBatchSheet?.SheetName)
@@ -736,6 +763,43 @@ public sealed class ManualImportService : IManualImportService
 
         return responses
             .DistinctBy(item => (item.RawId.ToUpperInvariant(), item.ResolvedId.ToUpperInvariant(), item.SheetName, item.SourceRowNumber))
+            .OrderBy(item => item.SheetName)
+            .ThenBy(item => item.SourceRowNumber)
+            .ToList();
+    }
+
+    private static IReadOnlyList<ModuleClientPreviewResponse> ModuleClientPreviewResponses(QaImportBatch batch)
+    {
+        return batch.Rows
+            .Select(row => (ImportRow: row, Row: JsonSerializer.Deserialize<QaRow>(row.RowJson)))
+            .Where(item => item.Row != null && (!string.IsNullOrWhiteSpace(item.Row.RawModule) || item.Row.ModuleClientPreviewClients.Count > 0 || !string.IsNullOrWhiteSpace(item.Row.ModuleClientPreviewSubClient)))
+            .Select(item => new ModuleClientPreviewResponse
+            {
+                RawModule = item.Row!.RawModule,
+                Module = item.Row.ModuleClientPreviewModule,
+                Clients = item.Row.ModuleClientPreviewClients,
+                SubClient = item.Row.ModuleClientPreviewSubClient,
+                Type = item.Row.ModuleClientPreviewType,
+                Dtd = item.Row.ModuleClientPreviewDtd,
+                SheetName = item.ImportRow.ImportBatchSheet?.SheetName ?? string.Empty,
+                SourceRowNumber = item.ImportRow.SourceRowNumber
+            })
+            .OrderBy(item => item.SheetName)
+            .ThenBy(item => item.SourceRowNumber)
+            .ToList();
+    }
+
+    private static IReadOnlyList<PreconditionWildcardWarningResponse> PreconditionWildcardWarningResponses(QaImportBatch batch)
+    {
+        return batch.Rows
+            .Select(row => (ImportRow: row, Row: JsonSerializer.Deserialize<QaRow>(row.RowJson)))
+            .Where(item => item.Row?.PreconditionWildcardWarning == true)
+            .Select(item => new PreconditionWildcardWarningResponse
+            {
+                SheetName = item.ImportRow.ImportBatchSheet?.SheetName ?? string.Empty,
+                SourceRowNumber = item.ImportRow.SourceRowNumber,
+                RawValue = item.Row!.PreconditionWildcardRawValue
+            })
             .OrderBy(item => item.SheetName)
             .ThenBy(item => item.SourceRowNumber)
             .ToList();
@@ -1061,6 +1125,151 @@ public sealed class ManualImportService : IManualImportService
         return module;
     }
 
+    private async Task<ResolvedModule> ResolveModuleAsync(string value, CancellationToken cancellationToken)
+    {
+        var result = await TryResolveModuleAsync(value, cancellationToken);
+        if (result.Errors.Count > 0)
+        {
+            throw new InvalidOperationException(string.Join("; ", result.Errors));
+        }
+
+        return result;
+    }
+
+    private async Task<ResolvedModule> TryResolveModuleAsync(string value, CancellationToken cancellationToken)
+    {
+        var parsed = await ParseModuleAsync(value, cancellationToken);
+        var errors = new List<string>();
+        var typeId = parsed.IsBook || parsed.ClientIds.Count > 0 ? await ResolveClosedLookupAsync(_dbContext.Types, parsed.IsBook ? "Book" : "Journal", cancellationToken) : null;
+        var typeName = typeId == 2 ? "Book" : typeId == 1 ? "Journal" : string.Empty;
+        int? dtdTypeId = null;
+        var dtdName = string.Empty;
+        if (typeId.HasValue && parsed.ClientIds.Count > 0)
+        {
+            dtdTypeId = await ResolveDtdTypeIdAsync(typeId, parsed.ClientIds[0], parsed.SubClientId, cancellationToken);
+            if (!dtdTypeId.HasValue)
+            {
+                errors.Add($"No DTD mapping exists for Type '{typeName}', Client '{parsed.ClientCodes[0]}'{(string.IsNullOrWhiteSpace(parsed.SubClientName) ? string.Empty : $", Sub-client '{parsed.SubClientName}'")}.");
+            }
+            else
+            {
+                dtdName = await _dbContext.DtdTypes.AsNoTracking().Where(item => item.Id == dtdTypeId.Value).Select(item => item.Value).FirstAsync(cancellationToken);
+            }
+        }
+
+        return new ResolvedModule(parsed.RawModule, parsed.ModuleName, parsed.ClientIds, parsed.ClientCodes, parsed.SubClientId, parsed.SubClientName, typeId, typeName, dtdTypeId, dtdName, errors);
+    }
+
+    private async Task<ParsedModule> ParseModuleAsync(string value, CancellationToken cancellationToken)
+    {
+        var raw = value.Trim();
+        var paren = System.Text.RegularExpressions.Regex.Match(raw, @"^(.*?)\s*\((.+?)\)\s*$");
+        if (paren.Success)
+        {
+            return await ParseModuleClientSegmentAsync(raw, paren.Groups[1].Value.Trim(), paren.Groups[2].Value, cancellationToken);
+        }
+
+        var trailing = await TryParseTrailingModuleClientAsync(raw, cancellationToken);
+        if (trailing != null) return trailing;
+
+        return new ParsedModule(raw, raw, [], [], null, string.Empty, false);
+    }
+
+    private async Task<ParsedModule> ParseModuleClientSegmentAsync(string raw, string moduleName, string segment, CancellationToken cancellationToken)
+    {
+        var isBook = System.Text.RegularExpressions.Regex.IsMatch(segment, @"\bbooks\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var cleaned = System.Text.RegularExpressions.Regex.Replace(segment, @"\bbooks\b", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+        if (cleaned.Contains('&'))
+        {
+            var clients = await ResolveClientTokensForPreviewAsync(SplitClientTokens(cleaned), cancellationToken);
+            return new ParsedModule(raw, moduleName, clients.Ids, clients.Codes, null, string.Empty, isBook);
+        }
+
+        if (cleaned.Contains(','))
+        {
+            var parts = cleaned.Split(',', 2, StringSplitOptions.TrimEntries);
+            var clients = await ResolveClientTokensForPreviewAsync([parts[0]], cancellationToken);
+            var subClient = clients.Ids.Count == 0 ? null : await ResolveSubClientAsync(clients.Ids[0], parts.Length > 1 ? parts[1] : string.Empty, cancellationToken);
+            return new ParsedModule(raw, moduleName, clients.Ids, clients.Codes, subClient?.Id, subClient?.Value ?? string.Empty, isBook);
+        }
+
+        var single = await ResolveClientTokensForPreviewAsync([cleaned], cancellationToken);
+        return new ParsedModule(raw, moduleName, single.Ids, single.Codes, null, string.Empty, isBook);
+    }
+
+    private async Task<ParsedModule?> TryParseTrailingModuleClientAsync(string raw, CancellationToken cancellationToken)
+    {
+        var aliases = await ClientTokensAsync(cancellationToken);
+        foreach (var token in aliases.OrderByDescending(item => item.Length))
+        {
+            if (!raw.EndsWith(" " + token, StringComparison.OrdinalIgnoreCase)) continue;
+            var moduleName = raw[..^(token.Length + 1)].Trim();
+            if (string.IsNullOrWhiteSpace(moduleName)) continue;
+            var client = await FindClientAsync(token, cancellationToken);
+            return client == null ? null : new ParsedModule(raw, moduleName, [client.Id], [client.Code], null, string.Empty, false);
+        }
+
+        return null;
+    }
+
+    private async Task<(IReadOnlyList<int> Ids, IReadOnlyList<string> Codes)> ResolveClientTokensForPreviewAsync(IReadOnlyList<string> tokens, CancellationToken cancellationToken)
+    {
+        var ids = new List<int>();
+        var codes = new List<string>();
+        foreach (var token in tokens.Where(item => !string.IsNullOrWhiteSpace(item)))
+        {
+            var client = await FindClientAsync(token, cancellationToken) ?? await ResolveClientAsync(token, cancellationToken);
+            ids.Add(client.Id);
+            codes.Add(client.Code);
+        }
+
+        return (ids, codes);
+    }
+
+    private async Task<Client?> FindClientAsync(string value, CancellationToken cancellationToken)
+    {
+        var trimmed = value.Trim();
+        var code = NormalizeClientCode(trimmed);
+        var client = await _dbContext.Clients.AsNoTracking().FirstOrDefaultAsync(item => item.Code == code, cancellationToken);
+        if (client != null) return client;
+        var alias = await _dbContext.ClientAliases.AsNoTracking().FirstOrDefaultAsync(item => item.Alias == trimmed, cancellationToken);
+        return alias == null ? null : await _dbContext.Clients.AsNoTracking().FirstAsync(item => item.Id == alias.ClientId, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<string>> ClientTokensAsync(CancellationToken cancellationToken)
+    {
+        var clients = await _dbContext.Clients.AsNoTracking().Select(item => item.Code).ToListAsync(cancellationToken);
+        var aliases = await _dbContext.ClientAliases.AsNoTracking().Select(item => item.Alias).ToListAsync(cancellationToken);
+        return clients.Concat(aliases).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private async Task<ClientSubBrand?> ResolveSubClientAsync(int clientId, string value, CancellationToken cancellationToken)
+    {
+        var trimmed = value.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed)) return null;
+        var subClient = await _dbContext.ClientSubBrands.FirstOrDefaultAsync(item => item.ClientId == clientId && item.Value == trimmed, cancellationToken);
+        if (subClient != null) return subClient;
+        subClient = new ClientSubBrand { ClientId = clientId, Value = trimmed };
+        _dbContext.ClientSubBrands.Add(subClient);
+        await _dbContext.SaveChangesAsync(cancellationToken);
+        return subClient;
+    }
+
+    private async Task<int?> ResolveDtdTypeIdAsync(int? typeId, int? clientId, int? subClientId, CancellationToken cancellationToken)
+    {
+        if (!typeId.HasValue || !clientId.HasValue) return null;
+        var match = await _dbContext.TypeClientDtdMaps.AsNoTracking()
+            .Where(item => item.TypeId == typeId.Value && item.ClientId == clientId.Value && item.SubClientId == subClientId)
+            .Select(item => (int?)item.DtdTypeId)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (match.HasValue) return match;
+        if (subClientId.HasValue) return null;
+        return await _dbContext.TypeClientDtdMaps.AsNoTracking()
+            .Where(item => item.TypeId == typeId.Value && item.ClientId == clientId.Value && item.SubClientId == null)
+            .Select(item => (int?)item.DtdTypeId)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
     private async Task<ResolvedPrecondition> ResolvePreconditionsAsync(string value, CancellationToken cancellationToken)
     {
         if (!TryParsePrecondition(value, out var parsed))
@@ -1070,7 +1279,7 @@ public sealed class ManualImportService : IManualImportService
 
         var roleId = string.IsNullOrWhiteSpace(parsed.Role)
             ? null
-            : await ResolveClosedLookupAsync(_dbContext.MasterPreconditionRoles, parsed.Role, cancellationToken);
+            : await ResolvePreconditionRoleIdAsync(parsed.Role, cancellationToken);
         var clientIds = new List<int>();
         var clientCodes = new List<string>();
         foreach (var token in parsed.ClientTokens)
@@ -1091,6 +1300,14 @@ public sealed class ManualImportService : IManualImportService
         var rows = await set.AsNoTracking().ToListAsync(cancellationToken);
         var row = rows.FirstOrDefault(item => string.Equals(property?.GetValue(item)?.ToString(), value.Trim(), StringComparison.OrdinalIgnoreCase));
         return row == null ? null : (int?)typeof(T).GetProperty("Id")!.GetValue(row);
+    }
+
+    private async Task<int?> ResolvePreconditionRoleIdAsync(string value, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var alias = await _dbContext.MasterPreconditionRoleAliases.AsNoTracking().FirstOrDefaultAsync(item => item.Alias == value.Trim(), cancellationToken);
+        if (alias != null) return alias.RoleId;
+        return await ResolveClosedLookupAsync(_dbContext.MasterPreconditionRoles, value, cancellationToken);
     }
 
     private async Task<IReadOnlyList<int>> ResolveTestingTypeIdsAsync(string value, CancellationToken cancellationToken)
@@ -1213,6 +1430,13 @@ public sealed class ManualImportService : IManualImportService
     private static IReadOnlyList<string> SplitTestingTypes(string value) => value.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     private static string NormalizeTestingType(string value) => value.Trim().Equals("Tomcat_Regression", StringComparison.OrdinalIgnoreCase) ? "Tomcat_Reg" : value.Trim();
     private static string NormalizeClientCode(string value) => value.Trim().ToUpperInvariant().Replace(" ", string.Empty).Replace("&", "N");
+    private static string NormalizeTestCaseNo(string value)
+    {
+        var trimmed = value.Trim();
+        return decimal.TryParse(trimmed, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var number) && number == decimal.Truncate(number)
+            ? decimal.Truncate(number).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : trimmed;
+    }
     private static bool IsGlobalParameter(string value) => value.Trim().Equals("Global parameter", StringComparison.OrdinalIgnoreCase);
     private static string NormalizeText(string value) => value.Replace("\r\n", "\n").Replace('\r', '\n');
     private static string NormalizeCell(string? value) => NormalizeText(value ?? string.Empty).Trim();
@@ -1223,11 +1447,12 @@ public sealed class ManualImportService : IManualImportService
         ("Shared Author", "Author", true),
         ("Shared Editor", "Editor", true),
         ("Shared Collator", "Collator", true),
+        ("Shared PE", "Editor", true),
         ("Co Author", "Author", true),
         ("Author", "Author", false),
         ("Collator", "Collator", false),
         ("Editor", "Editor", false),
-        ("PE", "PE", false)
+        ("PE", "Editor", false)
     ];
 
     private static string TempUploadDirectory() => Path.Combine(Path.GetTempPath(), "impact-testcaseviewer-imports");
@@ -1281,6 +1506,8 @@ public sealed class ManualImportService : IManualImportService
     private sealed record ParsedSheet(string SourceName, List<List<string>> Records);
     private sealed record ParsedPrecondition(string Role, IReadOnlyList<string> ClientTokens, bool IsSharedRole, bool IsBook);
     private sealed record ResolvedPrecondition(int? RoleId, IReadOnlyList<int> ClientIds, IReadOnlyList<string> ClientCodes, bool IsSharedRole, bool IsBook, int? MasterTypeId);
+    private sealed record ParsedModule(string RawModule, string ModuleName, IReadOnlyList<int> ClientIds, IReadOnlyList<string> ClientCodes, int? SubClientId, string SubClientName, bool IsBook);
+    private sealed record ResolvedModule(string RawModule, string ModuleName, IReadOnlyList<int> ClientIds, IReadOnlyList<string> ClientCodes, int? SubClientId, string SubClientName, int? TypeId, string TypeName, int? DtdTypeId, string DtdName, IReadOnlyList<string> Errors);
     private sealed class TempUploadMetadata
     {
         public string Token { get; set; } = string.Empty;
