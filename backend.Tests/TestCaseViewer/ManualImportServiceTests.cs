@@ -159,11 +159,31 @@ public sealed class ManualImportServiceTests
             ["TC_MOD_001", "Landing Page (OUP)"],
             ["TC_MOD_002", "Landing Page LWW"],
             ["TC_MOD_003", "Landing Page (LWW ,Thomson)"],
-            ["TC_MOD_004", "Landing Page (OSO & OxfordMed books)"])), null);
+            ["TC_MOD_004", "Landing Page (OSO & OxfordMed books)"],
+            ["TC_MOD_005", "Landing Page Medknow"],
+            ["TC_MOD_006", "Landing Page OSO"],
+            ["TC_MOD_007", "Landing Page T & F"],
+            ["TC_MOD_008", "Landing Page Oxmedo"],
+            ["TC_MOD_009", "Landing Page TNFJOURNALS"],
+            ["TC_MOD_010", "Landing Page Sandbox"],
+            ["TC_MOD_011", "Landing Page LWW==>THOMSON"],
+            ["TC_MOD_012", "Landing Page LWW => THOMSON"],
+            ["TC_MOD_013", "Landing Page LWW -> thomson"],
+            ["TC_MOD_014", "Landing Page LWW, THOMSON"],
+            ["TC_MOD_015", "Landing Page (LWW==>THOMSON)"])), null);
 
         Assert.Equal(0, batch.RowsError);
         Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page (LWW ,Thomson)" && item.SubClient == "Thomson" && item.Dtd == "JATS");
         Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page (OSO & OxfordMed books)" && item.Clients.Contains("OSO") && item.Clients.Contains("OXMEDO") && item.Type == "Book" && item.Dtd == "BITS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page T & F" && item.Clients.Contains("TNF") && item.Type == "Book" && item.Dtd == "BITS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page Medknow" && item.Clients.Contains("MEDKNOW") && item.Type == "Journal" && item.Dtd == "JATS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page TNFJOURNALS" && item.Clients.Contains("TNFJOURNALS") && item.Type == "Journal" && item.Dtd == "JATS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page Sandbox" && item.Clients.Contains("SANDBOX") && item.Type == "Journal" && item.Dtd == "JATS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page LWW==>THOMSON" && item.Module == "Landing Page" && item.Clients.Contains("LWW") && item.SubClient == "Thomson" && item.Type == "Journal" && item.Dtd == "JATS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page LWW => THOMSON" && item.Module == "Landing Page" && item.Clients.Contains("LWW") && item.SubClient == "Thomson" && item.Type == "Journal" && item.Dtd == "JATS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page LWW -> thomson" && item.Module == "Landing Page" && item.Clients.Contains("LWW") && item.SubClient == "Thomson" && item.Type == "Journal" && item.Dtd == "JATS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page LWW, THOMSON" && item.Module == "Landing Page" && item.Clients.Contains("LWW") && item.SubClient == "Thomson" && item.Type == "Journal" && item.Dtd == "JATS");
+        Assert.Contains(batch.ModuleClientPreview, item => item.RawModule == "Landing Page (LWW==>THOMSON)" && item.Module == "Landing Page" && item.Clients.Contains("LWW") && item.SubClient == "Thomson" && item.Type == "Journal" && item.Dtd == "JATS");
 
         await service.CommitAsync(batch.BatchId);
 
@@ -177,6 +197,44 @@ public sealed class ManualImportServiceTests
         Assert.Equal(2, books.MasterType);
         Assert.Equal(2, books.MasterDtdType);
         Assert.Equal(2, books.Clients.Count);
+        var tnfBooks = await db.MasterTemplates.Include(item => item.Clients).SingleAsync(item => item.MasterTestId == "TC_MOD_007");
+        Assert.Equal(3, tnfBooks.MasterClient);
+        Assert.Equal(2, tnfBooks.MasterType);
+        Assert.Equal(2, tnfBooks.MasterDtdType);
+        var tnfJournals = await db.MasterTemplates.SingleAsync(item => item.MasterTestId == "TC_MOD_009");
+        Assert.Equal(11, tnfJournals.MasterClient);
+        Assert.Equal(1, tnfJournals.MasterType);
+        Assert.Equal(1, tnfJournals.MasterDtdType);
+        var lwwThomson = await db.MasterTemplates.SingleAsync(item => item.MasterTestId == "TC_MOD_011");
+        Assert.Equal(5, lwwThomson.MasterClient);
+        Assert.Equal(1, lwwThomson.MasterSubClient);
+        Assert.Equal(1, lwwThomson.MasterType);
+        Assert.Equal(1, lwwThomson.MasterDtdType);
+        Assert.Single(await db.ClientSubBrands.Where(item => item.ClientId == 5 && item.Value == "Thomson").ToListAsync());
+    }
+
+    [Fact]
+    public async Task FullClientDtdSeed_ContainsExpectedMatrix()
+    {
+        await using var db = CreateDbContext();
+
+        var clients = await db.Clients.ToDictionaryAsync(item => item.Code, item => item.Id);
+        var maps = await db.TypeClientDtdMaps.ToListAsync();
+        var journalClients = new[] { "ACS", "BRILL", "INTELECCT", "LWW", "MEDKNOW", "NIHR", "OUP", "PLOS", "SANDBOX", "TNFJOURNALS" };
+        var bookClients = new[] { "LSE", "OHO", "OSO", "OXMEDO", "TNF" };
+
+        foreach (var code in journalClients)
+        {
+            Assert.Contains(maps, item => item.TypeId == 1 && item.ClientId == clients[code] && item.SubClientId == null && item.DtdTypeId == 1);
+        }
+
+        foreach (var code in bookClients)
+        {
+            Assert.Contains(maps, item => item.TypeId == 2 && item.ClientId == clients[code] && item.SubClientId == null && item.DtdTypeId == 2);
+        }
+
+        Assert.Contains(maps, item => item.TypeId == 1 && item.ClientId == clients["LWW"] && item.SubClientId == 1 && item.DtdTypeId == 1);
+        Assert.Equal("Intellect", (await db.Clients.SingleAsync(item => item.Code == "INTELECCT")).Name);
     }
 
     [Fact]
@@ -187,7 +245,7 @@ public sealed class ManualImportServiceTests
 
         var batch = await service.UploadMasterAsync(File("bad-matrix.tsv", Tsv(
             ["Test Case ID", "Module/Sub Module"],
-            ["TC_BAD_DTD_001", "Landing Page (T & F)"])), null);
+            ["TC_BAD_DTD_001", "Landing Page (TNFJOURNALS books)"])), null);
 
         Assert.Equal(1, batch.RowsError);
         Assert.Contains(batch.Errors, error => error.ErrorMessage.Contains("No DTD mapping", StringComparison.OrdinalIgnoreCase));

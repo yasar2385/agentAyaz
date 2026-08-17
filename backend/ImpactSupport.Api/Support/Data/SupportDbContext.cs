@@ -444,7 +444,16 @@ public sealed class SupportDbContext : DbContext
             new Client { Id = 3, Code = "TNF", Name = "T & F" },
             new Client { Id = 4, Code = "OUP", Name = "OUP" },
             new Client { Id = 5, Code = "LWW", Name = "LWW" },
-            new Client { Id = 6, Code = "OHO", Name = "OHO" });
+            new Client { Id = 6, Code = "OHO", Name = "OHO" },
+            new Client { Id = 7, Code = "ACS", Name = "ACS" },
+            new Client { Id = 8, Code = "BRILL", Name = "BRILL" },
+            new Client { Id = 9, Code = "NIHR", Name = "NIHR" },
+            new Client { Id = 10, Code = "SANDBOX", Name = "SANDBOX" },
+            new Client { Id = 11, Code = "TNFJOURNALS", Name = "TNFJOURNALS" },
+            new Client { Id = 12, Code = "LSE", Name = "LSE" },
+            new Client { Id = 13, Code = "MEDKNOW", Name = "MEDKNOW" },
+            new Client { Id = 14, Code = "PLOS", Name = "PLOS" },
+            new Client { Id = 15, Code = "INTELECCT", Name = "Intellect" });
         modelBuilder.Entity<ClientSubBrand>(entity =>
         {
             entity.ToTable("ClientSubBrands");
@@ -464,12 +473,22 @@ public sealed class SupportDbContext : DbContext
             entity.HasOne<ClientSubBrand>().WithMany().HasForeignKey(x => x.SubClientId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne<DtdType>().WithMany().HasForeignKey(x => x.DtdTypeId).OnDelete(DeleteBehavior.Restrict);
             entity.HasData(
-                new TypeClientDtdMap { Id = 1, TypeId = 1, ClientId = 4, DtdTypeId = 1 },
-                new TypeClientDtdMap { Id = 2, TypeId = 1, ClientId = 5, DtdTypeId = 1 },
-                new TypeClientDtdMap { Id = 3, TypeId = 1, ClientId = 5, SubClientId = 1, DtdTypeId = 1 },
-                new TypeClientDtdMap { Id = 4, TypeId = 2, ClientId = 1, DtdTypeId = 2 },
-                new TypeClientDtdMap { Id = 5, TypeId = 2, ClientId = 6, DtdTypeId = 2 },
-                new TypeClientDtdMap { Id = 6, TypeId = 2, ClientId = 2, DtdTypeId = 2 });
+                new TypeClientDtdMap { Id = 1, TypeId = 1, ClientId = 7, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 2, TypeId = 1, ClientId = 8, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 3, TypeId = 1, ClientId = 15, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 4, TypeId = 1, ClientId = 5, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 5, TypeId = 1, ClientId = 13, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 6, TypeId = 1, ClientId = 9, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 7, TypeId = 1, ClientId = 4, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 8, TypeId = 1, ClientId = 14, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 9, TypeId = 1, ClientId = 10, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 10, TypeId = 1, ClientId = 11, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 11, TypeId = 1, ClientId = 5, SubClientId = 1, DtdTypeId = 1 },
+                new TypeClientDtdMap { Id = 12, TypeId = 2, ClientId = 12, DtdTypeId = 2 },
+                new TypeClientDtdMap { Id = 13, TypeId = 2, ClientId = 6, DtdTypeId = 2 },
+                new TypeClientDtdMap { Id = 14, TypeId = 2, ClientId = 1, DtdTypeId = 2 },
+                new TypeClientDtdMap { Id = 15, TypeId = 2, ClientId = 2, DtdTypeId = 2 },
+                new TypeClientDtdMap { Id = 16, TypeId = 2, ClientId = 3, DtdTypeId = 2 });
         });
         modelBuilder.Entity<MasterTemplateRemark>(entity =>
         {

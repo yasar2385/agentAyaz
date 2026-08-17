@@ -1169,6 +1169,9 @@ public sealed class ManualImportService : IManualImportService
             return await ParseModuleClientSegmentAsync(raw, paren.Groups[1].Value.Trim(), paren.Groups[2].Value, cancellationToken);
         }
 
+        var inlineSubClient = await TryParseInlineSubClientAsync(raw, cancellationToken);
+        if (inlineSubClient != null) return inlineSubClient;
+
         var trailing = await TryParseTrailingModuleClientAsync(raw, cancellationToken);
         if (trailing != null) return trailing;
 
@@ -1179,6 +1182,14 @@ public sealed class ManualImportService : IManualImportService
     {
         var isBook = System.Text.RegularExpressions.Regex.IsMatch(segment, @"\bbooks\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         var cleaned = System.Text.RegularExpressions.Regex.Replace(segment, @"\bbooks\b", string.Empty, System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+        var subClientParts = SplitSubClientSegment(cleaned);
+        if (subClientParts != null)
+        {
+            var clients = await ResolveClientTokensForPreviewAsync([subClientParts.Value.Client], cancellationToken);
+            var subClient = clients.Ids.Count == 0 ? null : await ResolveSubClientAsync(clients.Ids[0], subClientParts.Value.SubClient, cancellationToken);
+            return new ParsedModule(raw, moduleName, clients.Ids, clients.Codes, subClient?.Id, subClient?.Value ?? string.Empty, isBook);
+        }
+
         if (cleaned.Contains('&'))
         {
             var clients = await ResolveClientTokensForPreviewAsync(SplitClientTokens(cleaned), cancellationToken);
@@ -1197,6 +1208,28 @@ public sealed class ManualImportService : IManualImportService
         return new ParsedModule(raw, moduleName, single.Ids, single.Codes, null, string.Empty, isBook);
     }
 
+    private async Task<ParsedModule?> TryParseInlineSubClientAsync(string raw, CancellationToken cancellationToken)
+    {
+        var split = SplitSubClientSegment(raw);
+        if (split == null) return null;
+
+        var aliases = await ClientTokensAsync(cancellationToken);
+        foreach (var token in aliases.OrderByDescending(item => item.Length))
+        {
+            if (!split.Value.Client.EndsWith(" " + token, StringComparison.OrdinalIgnoreCase)) continue;
+            var moduleName = split.Value.Client[..^(token.Length + 1)].Trim();
+            if (string.IsNullOrWhiteSpace(moduleName)) continue;
+            var client = await FindClientAsync(token, cancellationToken);
+            if (client == null) return null;
+            var subClient = await ResolveSubClientAsync(client.Id, split.Value.SubClient, cancellationToken);
+            var isBookOnlyAlias = token.Equals("T & F", StringComparison.OrdinalIgnoreCase) || token.Equals("T&F", StringComparison.OrdinalIgnoreCase);
+            var isBookOnlyClient = isBookOnlyAlias || await IsBookOnlyClientAsync(client.Id, cancellationToken);
+            return new ParsedModule(raw, moduleName, [client.Id], [client.Code], subClient?.Id, subClient?.Value ?? string.Empty, isBookOnlyClient);
+        }
+
+        return null;
+    }
+
     private async Task<ParsedModule?> TryParseTrailingModuleClientAsync(string raw, CancellationToken cancellationToken)
     {
         var aliases = await ClientTokensAsync(cancellationToken);
@@ -1206,10 +1239,22 @@ public sealed class ManualImportService : IManualImportService
             var moduleName = raw[..^(token.Length + 1)].Trim();
             if (string.IsNullOrWhiteSpace(moduleName)) continue;
             var client = await FindClientAsync(token, cancellationToken);
-            return client == null ? null : new ParsedModule(raw, moduleName, [client.Id], [client.Code], null, string.Empty, false);
+            var isBookOnlyAlias = token.Equals("T & F", StringComparison.OrdinalIgnoreCase) || token.Equals("T&F", StringComparison.OrdinalIgnoreCase);
+            if (client == null) return null;
+            var isBookOnlyClient = isBookOnlyAlias || await IsBookOnlyClientAsync(client.Id, cancellationToken);
+            return new ParsedModule(raw, moduleName, [client.Id], [client.Code], null, string.Empty, isBookOnlyClient);
         }
 
         return null;
+    }
+
+    private async Task<bool> IsBookOnlyClientAsync(int clientId, CancellationToken cancellationToken)
+    {
+        var hasBook = await _dbContext.TypeClientDtdMaps.AsNoTracking()
+            .AnyAsync(item => item.ClientId == clientId && item.TypeId == 2 && item.SubClientId == null, cancellationToken);
+        if (!hasBook) return false;
+        return !await _dbContext.TypeClientDtdMaps.AsNoTracking()
+            .AnyAsync(item => item.ClientId == clientId && item.TypeId == 1 && item.SubClientId == null, cancellationToken);
     }
 
     private async Task<(IReadOnlyList<int> Ids, IReadOnlyList<string> Codes)> ResolveClientTokensForPreviewAsync(IReadOnlyList<string> tokens, CancellationToken cancellationToken)
@@ -1245,9 +1290,10 @@ public sealed class ManualImportService : IManualImportService
 
     private async Task<ClientSubBrand?> ResolveSubClientAsync(int clientId, string value, CancellationToken cancellationToken)
     {
-        var trimmed = value.Trim();
+        var trimmed = CanonicalizeSubClient(value);
         if (string.IsNullOrWhiteSpace(trimmed)) return null;
-        var subClient = await _dbContext.ClientSubBrands.FirstOrDefaultAsync(item => item.ClientId == clientId && item.Value == trimmed, cancellationToken);
+        var upper = trimmed.ToUpperInvariant();
+        var subClient = await _dbContext.ClientSubBrands.FirstOrDefaultAsync(item => item.ClientId == clientId && item.Value.ToUpper() == upper, cancellationToken);
         if (subClient != null) return subClient;
         subClient = new ClientSubBrand { ClientId = clientId, Value = trimmed };
         _dbContext.ClientSubBrands.Add(subClient);
@@ -1425,6 +1471,21 @@ public sealed class ManualImportService : IManualImportService
         var trimmed = value.Trim();
         if (trimmed.Equals("T & F", StringComparison.OrdinalIgnoreCase) || trimmed.Equals("T&F", StringComparison.OrdinalIgnoreCase)) return [trimmed];
         return trimmed.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
+    private static (string Client, string SubClient)? SplitSubClientSegment(string value)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(value, @"^(.*?)\s*(?:==>|=>|->|,)\s*(.+?)\s*$");
+        if (!match.Success) return null;
+        var client = match.Groups[1].Value.Trim();
+        var subClient = match.Groups[2].Value.Trim();
+        return string.IsNullOrWhiteSpace(client) || string.IsNullOrWhiteSpace(subClient) ? null : (client, subClient);
+    }
+
+    private static string CanonicalizeSubClient(string value)
+    {
+        var trimmed = value.Trim();
+        return trimmed.Equals("THOMSON", StringComparison.OrdinalIgnoreCase) ? "Thomson" : trimmed;
     }
 
     private static IReadOnlyList<string> SplitTestingTypes(string value) => value.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
